@@ -1,0 +1,8 @@
+*.pyc
+.ipynb_checkpoints
+__pycache__
+/.idea
+/runs/*.pth
+/runs/old/**
+/data/*.arrow
+
