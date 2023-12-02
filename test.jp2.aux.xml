@@ -1,0 +1,55 @@
+<PAMDataset>
+  <Metadata>
+    <MDI key="COLORSPACE">RGB</MDI>
+    <MDI key="COMPRESSION_RATE_TARGET">1</MDI>
+  </Metadata>
+  <Metadata domain="JPEG2000">
+    <MDI key="CODE_BLOCK_SIZE_X">64</MDI>
+    <MDI key="CODE_BLOCK_SIZE_Y">64</MDI>
+    <MDI key="GML_JP2_DATA">FALSE</MDI>
+    <MDI key="PRECINCT_SIZE_X">32768,32768,32768,32768,32768</MDI>
+    <MDI key="PRECINCT_SIZE_Y">32768,32768,32768,32768,32768</MDI>
+    <MDI key="PRECISION">8,8,8</MDI>
+    <MDI key="PROFILE">2</MDI>
+    <MDI key="PROGRESSION_ORDER">LRCP</MDI>
+    <MDI key="QUALITY_LAYERS">1</MDI>
+    <MDI key="RESOLUTION_LEVELS">5</MDI>
+    <MDI key="TILES_X">1</MDI>
+    <MDI key="TILES_Y">1</MDI>
+    <MDI key="TILE_HEIGHT">701</MDI>
+    <MDI key="TILE_WIDTH">834</MDI>
+    <MDI key="TRANSFORMATION_TYPE">5x3</MDI>
+    <MDI key="USE_EPH">FALSE</MDI>
+    <MDI key="USE_SOP">FALSE</MDI>
+  </Metadata>
+  <PAMRasterBand band="1">
+    <Description>Red</Description>
+    <Metadata>
+      <MDI key="STATISTICS_APPROXIMATE">YES</MDI>
+      <MDI key="STATISTICS_MAXIMUM">255</MDI>
+      <MDI key="STATISTICS_MEAN">115.59532967033</MDI>
+      <MDI key="STATISTICS_MINIMUM">0</MDI>
+      <MDI key="STATISTICS_STDDEV">36.703024550506</MDI>
+    </Metadata>
+  </PAMRasterBand>
+  <PAMRasterBand band="2">
+    <Description>Green</Description>
+    <Metadata>
+      <MDI key="STATISTICS_APPROXIMATE">YES</MDI>
+      <MDI key="STATISTICS_MAXIMUM">255</MDI>
+      <MDI key="STATISTICS_MEAN">122.59035714286</MDI>
+      <MDI key="STATISTICS_MINIMUM">9</MDI>
+      <MDI key="STATISTICS_STDDEV">30.552069054302</MDI>
+    </Metadata>
+  </PAMRasterBand>
+  <PAMRasterBand band="3">
+    <Description>Blue</Description>
+    <Metadata>
+      <MDI key="STATISTICS_APPROXIMATE">YES</MDI>
+      <MDI key="STATISTICS_MAXIMUM">255</MDI>
+      <MDI key="STATISTICS_MEAN">119.11725274725</MDI>
+      <MDI key="STATISTICS_MINIMUM">16</MDI>
+      <MDI key="STATISTICS_STDDEV">28.259017604458</MDI>
+    </Metadata>
+  </PAMRasterBand>
+</PAMDataset>

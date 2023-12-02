@@ -1,12 +1,12 @@
 from osgeo import gdal #> https://pcjericks.github.io/py-gdalogr-cookbook/
 gdal.UseExceptions() 
+from pathlib import Path
 import numpy as np, os, torch
 from .mainModel import MainModel
 from .tools import lab_to_rgb
 from typing import Iterable
-from skimage.exposure import rescale_intensity
-
-MAIN_WEIGTHS = r".\runs\model_pil_run10_1m_512.pth"
+from skimage.exposure import match_histograms, adjust_sigmoid
+from skimage import io
 
 class GDALtile():
     def __init__(self, in_array:np.array, posx:int, poxy:int, padx:int, pady:int):
@@ -24,7 +24,8 @@ class GDALtile():
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, 
+                 tileSize:int=512, refImage:os.PathLike=None, improve_contrast:bool=False):
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,7 +33,12 @@ class GDALfile_colorizer():
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
         self.tileSize = tileSize
-
+        self.refImage = None 
+        self.improve_contrast = improve_contrast
+        if refImage is not None:
+            imh_h = gdal.Open( str(refImage), gdal.GA_ReadOnly) if refImage else None 
+            self.refImage = imh_h.ReadAsArray()[:3]
+        
     def _load_model(self, weigths):
         _model = MainModel()
         _model.eval()
@@ -49,6 +55,11 @@ class GDALfile_colorizer():
         tile.setArray( (C_tile * 255).astype(np.uint8) )
         return tile
 
+    def _balansColor(self, img):
+        if self.refImage is None:
+            return img
+        return match_histograms(img , self.refImage, channel_axis=2 )
+
     def _process_tiles(self ):
         full_img= np.zeros( (3, self.ysize ,self.xsize) , dtype=np.uint8  ) 
         for tile in self._tileGenerator(self.tileSize):
@@ -56,7 +67,7 @@ class GDALfile_colorizer():
 
             xoff = newTile.posx
             yoff = newTile.posy
-            patch = rescale_intensity( newTile.getArray() , in_range=(0,255) )
+            patch = adjust_sigmoid( newTile.getArray() ) if self.improve_contrast else newTile.getArray()
 
             if newTile.pady > 0:
                 patch = patch[0:-1 *tile.pady, :]
@@ -84,14 +95,26 @@ class GDALfile_colorizer():
                 yield GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize)
 
     def saveOutDataSet(self, out_GDALfile:os.PathLike, outDriver:str='GTiff', creation_options:Iterable=None):
+        img_rgb = self._process_tiles() #[:,:self.ysize,:self.xsize]
+        if self.refImage is not None:
+            img_rgb = np.stack(
+                [ match_histograms(img_rgb[c] , self.refImage[c]) for c in range(3) ]
+            , axis=0)
+
+        if outDriver in ('PNG', 'JPEG', 'JPEG2000') or outDriver is None:
+            fname = Path(out_GDALfile)
+            wld_ext = '.wld' if outDriver != 'JPEG2000' else '.j2w'
+            io.imsave( fname=fname, arr= img_rgb.transpose((1, 2, 0)) )
+            with open( fname.parent / f"{fname.stem}{wld_ext}" ,'w') as wld:
+                wld.write("\n".join([str(self.transform[i]) for i in (1,2,4,5,0,3)]))
+            return 
+
         drv = gdal.GetDriverByName(outDriver)
         if creation_options is None and outDriver == 'GTiff':
             creation_options = [ 
                 'BIGTIFF=IF_NEEDED', 'INTERLEAVE=BAND', 'COMPRESS=JPEG',
-                'Tiled=YES', f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
+                'Tiled=YES', f'BLOCKSIZE={self.tileSize}', 
                 'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS' ]
-
-        img_rgb = self._process_tiles() #[:,:self.ysize,:self.xsize]
 
         self.outDataset = drv.Create(str(out_GDALfile), bands=3, xsize=self.xsize, ysize=self.ysize,
                                                 eType=gdal.GDT_Byte, options=creation_options) 
