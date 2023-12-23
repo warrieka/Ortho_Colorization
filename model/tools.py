@@ -57,18 +57,18 @@ def visualize(model, data, epoch, save_dir=''):
     L = model.L
     fake_imgs = lab_to_rgb(L, fake_color)
     real_imgs = lab_to_rgb(L, real_color)
-    fig = plt.figure(figsize=(15, 8))
+    fig = plt.figure(figsize=(12, 8))
     fig.suptitle(f'Colorisation at Epoch {epoch+1}')
-    for i in range(5):
-        ax = plt.subplot(3, 5, i + 1)
+    for i in range(4):
+        ax = plt.subplot(3, 4, i + 1)
         ax.imshow(L[i][0].cpu(), cmap='gray')
         ax.set_title("INPUT GRAY")
         ax.axis("off")
-        ax = plt.subplot(3, 5, i + 6)
+        ax = plt.subplot(3, 4, i + 5)
         ax.imshow(fake_imgs[i])
         ax.set_title("FAKE")
         ax.axis("off")
-        ax = plt.subplot(3, 5, i + 11)
+        ax = plt.subplot(3, 4, i + 9)
         ax.imshow(real_imgs[i])
         ax.set_title("REAL")
         ax.axis("off")

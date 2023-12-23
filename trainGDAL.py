@@ -5,17 +5,18 @@ from tqdm import tqdm
 from model.tools import create_loss_meters, update_losses, log_results, visualize
 from model.gdal_Dataset import gdalTrainDataset, gdalTestDataset
 from model.mainModel import MainModel
+from model.unet import ResUnet
 
 # HYPERPARAMETERS
-TILE_SIZE = 256
+TILE_SIZE = 512
 EPOCHS =     10
 START_EPOCH = 10
 LR_GENERATOR =     1e-4
 LR_DISCRIMINATOR = 1e-4
 IMG_TRAIN =  r"W:\testdata\train2023.tif"
 IMG_TEST =   r"W:\testdata\test2023.tif"
-PRETRAINED_DICT = r'.\runs\model_gdal_run7_1m.pth'
-OUT_STATE_DICT =  r'.\runs\model_gdal_run8_1m.pth'
+PRETRAINED_DICT = r'.\runs\model_pil_run10_1m_512.pth'
+OUT_STATE_DICT =  r'.\runs\model_gdal_run8_0.15m_512.pth'
 
 # # Train
 def train_model(model, train_dl, test_dl):
@@ -41,7 +42,7 @@ def main():
     train_dl= DataLoader(gdalTrainDataset(IMG_TRAIN, imsize=TILE_SIZE), batch_size=64, num_workers=8)
     test_dl = DataLoader(gdalTestDataset( IMG_TEST , imsize=TILE_SIZE), batch_size=6, num_workers=2)
 
-    model = MainModel(lr_G=LR_GENERATOR, lr_D=LR_DISCRIMINATOR)
+    model = MainModel(lr_G=LR_GENERATOR, lr_D=LR_DISCRIMINATOR, net_G=ResUnet())
     
     if PRETRAINED_DICT is not None:
          model.load_state_dict(

@@ -3,8 +3,9 @@ gdal.UseExceptions()
 import torch
 import numpy as np
 from skimage.color import rgb2lab
-from skimage.filters import unsharp_mask
+from skimage.exposure import adjust_gamma
 from skimage.util import random_noise
+from skimage.filters import gaussian
 from torch.utils.data import IterableDataset
 from torchvision.transforms import v2
 
@@ -16,9 +17,15 @@ class gdalTrainDataset(IterableDataset):
         self.skip = (xSkip,yskip)
         self.itr = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=False)])  #Convert to ImageTensor of float32
        
-    def aug(self, img):  
-        "some simple data augmentation on img"
-        return unsharp_mask(image=random_noise(img), radius=np.random.randint(0,15) )  
+    def _aug(self, img:np.ndarray):
+        "some data augmentation on img "
+        #img = adjust_gamma(img, gamma=np.random.uniform(low=0.5, high=1.5) ) #change lighting
+        if np.random.uniform() > 0.8:  #add random noise 20% of the time
+            img = (random_noise(img)*255).astype('uint8') 
+        # if np.random.uniform() > 0.7:  #add some random blur 30% of the time
+        #     img = gaussian(img, np.random.uniform(0,1.5) )
+        return img
+    
 
     def __iter__(self):
         return iter(self.rasterGenerator(self.path, self.size, *self.skip))

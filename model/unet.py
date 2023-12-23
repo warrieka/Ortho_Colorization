@@ -1,5 +1,38 @@
 import torch
-from torch import nn
+from torch import nn, optim
+from fastai.vision.learner import create_body
+from fastai.vision.models.unet import DynamicUnet
+import timm, datetime
+from tqdm import tqdm
+from .tools import AverageMeter
+
+def pretrain_generator(net_G, pretrain_dl, epochs=20):
+    opt = optim.Adam(net_G.parameters(), lr=1e-4)
+    criterion = nn.L1Loss()     
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    for e in range(1,epochs):
+        loss_meter = AverageMeter()
+        for pretrain_data in tqdm(pretrain_dl):
+            L, ab = pretrain_data['L'].to(device), pretrain_data['ab'].to(device)
+            preds = net_G(L)
+            loss = criterion(preds, ab)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            
+            loss_meter.update(loss.item(), L.size(0))
+            
+        print(f"Epoch {e}/{epochs}")
+        print(f"L1 Loss: {loss_meter.avg:.5f}")
+    return net_G
+
+def ResUnet(n_input=1, n_output=2, size=224, timm_model_name='resnet18'):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = timm.create_model(timm_model_name, pretrained=True)
+    body = create_body(model, pretrained=True, n_in=n_input, cut=-2)
+    net_G = DynamicUnet(body, n_output, (size, size)).to(device)
+    return net_G
 
 class UnetBlock(nn.Module):
     def __init__(self, nf, ni, submodule=None, input_c=None, dropout=False,

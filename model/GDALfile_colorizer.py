@@ -9,8 +9,9 @@ from skimage.exposure import match_histograms, adjust_sigmoid
 from skimage import io
 
 class GDALtile():
-    def __init__(self, in_array:np.array, posx:int, poxy:int, padx:int, pady:int):
+    def __init__(self, in_array:np.ndarray,posx:int, poxy:int, padx:int, pady:int, mask:np.ndarray=None ):
         self._Array = in_array
+        self.mask = mask
         self.posx = posx
         self.posy = poxy
         self.padx = padx
@@ -19,25 +20,26 @@ class GDALtile():
     def setArray(self, resultArray):
         self._Array = resultArray
 
-    def getArray(self) -> np.array:
-        return self._Array 
+    def getArray(self, nodata:int=None) -> np.array:
+        array = self._Array 
+        if nodata is not None and self.mask is not None:
+            array[self.mask] = nodata
+        return array
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, 
-                 tileSize:int=512, refImage:os.PathLike=None, improve_contrast:bool=False):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike,
+                 tileSize:int=512, improve_contrast:bool=False):
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self._load_model(weigths)
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
+        self.nodata = self.inDataset.GetRasterBand(1).GetNoDataValue()
         self.tileSize = tileSize
         self.refImage = None 
         self.improve_contrast = improve_contrast
-        if refImage is not None:
-            imh_h = gdal.Open( str(refImage), gdal.GA_ReadOnly) if refImage else None 
-            self.refImage = imh_h.ReadAsArray()[:3]
         
     def _load_model(self, weigths):
         _model = MainModel()
@@ -47,7 +49,7 @@ class GDALfile_colorizer():
                 torch.load(weigths, map_location=self.device) )
         return _model
             
-    def _infer(self, tile):
+    def _infer(self, tile:GDALtile) ->  np.ndarray:
         T_tile = torch.Tensor( ( tile.getArray() /128) -1 ).unsqueeze(0)
         with torch.inference_mode():
             pred = self.model.net_G( T_tile.unsqueeze(0).to(self.device) )
@@ -55,20 +57,26 @@ class GDALfile_colorizer():
         tile.setArray( (C_tile * 255).astype(np.uint8) )
         return tile
 
-    def _balansColor(self, img):
-        if self.refImage is None:
-            return img
-        return match_histograms(img , self.refImage, channel_axis=2 )
+    def _inferTiles(self, tiles:Iterable[GDALtile]):
+        T_tiles = torch.cat( [ torch.Tensor(( tile.getArray() /128) -1 ).unsqueeze(0) for tile in tiles ] )
+        with torch.inference_mode():
+            preds = self.model.net_G( T_tiles.to(self.device) )
 
-    def _process_tiles(self ):
+        C_tiles = lab_to_rgb(T_tiles, preds.cpu())
+        for i in len(tiles):
+            tiles[i].setArray( (C_tiles[i] * 255).astype(np.uint8) )
+        return tiles
+
+    def _process_tiles(self) -> np.ndarray:
         full_img= np.zeros( (3, self.ysize ,self.xsize) , dtype=np.uint8  ) 
+
         for tile in self._tileGenerator(self.tileSize):
             newTile = self._infer(tile)
 
             xoff = newTile.posx
             yoff = newTile.posy
-            patch = adjust_sigmoid( newTile.getArray() ) if self.improve_contrast else newTile.getArray()
-
+            patch = newTile.getArray(self.nodata)
+            
             if newTile.pady > 0:
                 patch = patch[0:-1 *tile.pady, :]
             if newTile.padx > 0:
@@ -77,9 +85,25 @@ class GDALfile_colorizer():
             bil = np.stack((patch[:,:,0], patch[:,:,1], patch[:,:,2]), axis=0).astype(np.uint8)
             full_img[:, yoff: yoff + bil.shape[1] , xoff: xoff + bil.shape[2] ] = bil
 
+        # for tiles in self._tileGenerator(self.tileSize):
+        #     newTiles = self._inferTiles(tiles)
+        #     newTile = self._infer(tile)
+        #     for newTile in newTiles:
+        #         xoff = newTile.posx
+        #         yoff = newTile.posy
+        #         patch = newTile.getArray(self.nodata)
+                
+        #         if newTile.pady > 0:
+        #             patch = patch[0:-1 * newTile.pady, :]
+        #         if newTile.padx > 0:
+        #             patch = patch[:, 0:-1* newTile.padx]
+
+        #         bil = np.stack((patch[:,:,0], patch[:,:,1], patch[:,:,2]), axis=0).astype(np.uint8)
+        #         full_img[:, yoff: yoff + bil.shape[1] , xoff: xoff + bil.shape[2] ] = bil
+
         return full_img
 
-    def _tileGenerator(self, imsize):
+    def _tileGenerator(self, imsize:int) -> Iterable[GDALtile]:
         for xi, xoff in enumerate( range(0, self.xsize , imsize)):
             for yi, yoff in  enumerate( range(0, self.ysize , imsize)):
                 # Last row and column are smaller then needed for inference                
@@ -89,38 +113,85 @@ class GDALfile_colorizer():
                 if (self.ysize - (yi*imsize)) < imsize:
                     ysize =  self.ysize - (yi*imsize)
 
-                img = self.inDataset.ReadAsArray(xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize)
+                img = self.inDataset.GetRasterBand(1).ReadAsArray(xoff=xoff, yoff=yoff, win_xsize=xsize, win_ysize=ysize)
                 img = np.pad(img, ((0, imsize- ysize),(0, imsize- xsize)),  mode='median') 
 
-                yield GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize)
+                mask = None
+                if self.nodata is not None:  #replace nodata 
+                    mask = img == self.nodata
+                    img[img == self.nodata] = np.median( np.ceil(img[img != self.nodata]) ).astype("uint8")
 
-    def saveOutDataSet(self, out_GDALfile:os.PathLike, outDriver:str='GTiff', creation_options:Iterable=None):
+                yield GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask)
+
+    # def _tileGenerator(self, imsize:int, batchsize:int=32) -> Iterable[GDALtile]:
+    #     tiles = []
+    #     c=0
+    #     for xi, xoff in enumerate( range(0, self.xsize , imsize)):
+    #         for yi, yoff in  enumerate( range(0, self.ysize , imsize)):
+    #             c+=1
+    #             # Last row and column are smaller then needed for inference                
+    #             xsize, ysize = (imsize,imsize)
+    #             if (self.xsize - (xi*imsize)) < imsize:
+    #                 xsize =  self.xsize - (xi*imsize)
+    #             if (self.ysize - (yi*imsize)) < imsize:
+    #                 ysize =  self.ysize - (yi*imsize)
+
+    #             img = self.inDataset.GetRasterBand(1).ReadAsArray(xoff=xoff, yoff=yoff, win_xsize=xsize, win_ysize=ysize)
+    #             img = np.pad(img, ((0, imsize- ysize),(0, imsize- xsize)),  mode='median') 
+
+    #             mask = None
+    #             if self.nodata is not None:  #replace nodata 
+    #                 mask = img == self.nodata
+    #                 img[img == self.nodata] = np.median( img[img != self.nodata] ).astype("uint8")
+
+    #             tiles.append( GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask) )
+        
+    #     if c % batchsize == 0:
+    #         out_tiles = tiles.copy()
+    #         tiles = []
+    #         yield out_tiles
+
+
+    def saveOutDataSet(self, out_GDALfile:os.PathLike, outDriver:str='GTiff', 
+                       creation_options:Iterable[str]=None):
         img_rgb = self._process_tiles() #[:,:self.ysize,:self.xsize]
-        if self.refImage is not None:
-            img_rgb = np.stack(
-                [ match_histograms(img_rgb[c] , self.refImage[c]) for c in range(3) ]
-            , axis=0)
+
+        if self.improve_contrast:
+            img_rgb = adjust_sigmoid( img_rgb )
 
         if outDriver in ('PNG', 'JPEG', 'JPEG2000') or outDriver is None:
             fname = Path(out_GDALfile)
-            wld_ext = '.wld' if outDriver != 'JPEG2000' else '.j2w'
+            wld_ext = fname.suffix[:-2] + fname.suffix[-1] + 'w'
             io.imsave( fname=fname, arr= img_rgb.transpose((1, 2, 0)) )
             with open( fname.parent / f"{fname.stem}{wld_ext}" ,'w') as wld:
                 wld.write("\n".join([str(self.transform[i]) for i in (1,2,4,5,0,3)]))
             return 
 
         drv = gdal.GetDriverByName(outDriver)
+        ## Options for a Geotiff (.tif) 
         if creation_options is None and outDriver == 'GTiff':
-            creation_options = [ 
-                'BIGTIFF=IF_NEEDED', 'INTERLEAVE=BAND', 'COMPRESS=JPEG',
-                'Tiled=YES', f'BLOCKSIZE={self.tileSize}', 
-                'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS' ]
+            creation_options = [ 'BIGTIFF=YES', 'INTERLEAVE=BAND', 'COMPRESS=JPEG',
+                    'Tiled=YES', f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
+                    'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS'  ]
+        ## Options for a GeoPackage (.gpkg) 
+        elif creation_options is None and outDriver == 'GPKG':
+            creation_options = [f'RASTER_TABLE={Path(out_GDALfile).stem}', 
+                    'RESAMPLING=LANCZOS', 'TILE_FORMAT=PNG_JPEG', 
+                    f'BLOCKSIZE={self.tileSize}', 'TILING_SCHEME=GoogleMapsCompatible' ]
+        ## Options for a Cloud Optimized GeoTIFF Generator (.tif)
+        elif creation_options is None and outDriver == 'COG':
+            creation_options = ['TILING_SCHEME=GoogleMapsCompatible', 'COMPRESS=JPEG',
+                    'BIGTIFF=YES', f'BLOCKSIZE={self.tileSize}', 'WARP_RESAMPLING=LANCZOS',
+                    'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS', 'STATISTICS=YES' ]
 
         self.outDataset = drv.Create(str(out_GDALfile), bands=3, xsize=self.xsize, ysize=self.ysize,
                                                 eType=gdal.GDT_Byte, options=creation_options) 
         self.outDataset.WriteArray(img_rgb)
         self.outDataset.SetGeoTransform(self.transform)
         self.outDataset.SetProjection(self.inDataset.GetProjection())
+        for b in range(1,4):
+            if self.nodata:
+                self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
         # free up memory
         self.outDataset.FlushCache()
         self.outDataset = None

@@ -2,7 +2,8 @@
 .ipynb_checkpoints
 __pycache__
 /.idea
-/runs/*.pth
-/runs/old/**
+/runs/models/*.pth
+/runs/pretrain/*.pth
+/runs/old/
 /data/*.arrow
 
