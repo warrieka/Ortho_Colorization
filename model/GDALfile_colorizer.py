@@ -1,12 +1,17 @@
 from osgeo import gdal #> https://pcjericks.github.io/py-gdalogr-cookbook/
-gdal.UseExceptions() 
+import warnings
 from pathlib import Path
 import numpy as np, os, torch
 from .mainModel import MainModel
 from .tools import lab_to_rgb
 from typing import Iterable
-from skimage.exposure import match_histograms, adjust_sigmoid
+from model.unet import ResUnet
+from accelerate import Accelerator
 from skimage import io
+
+gdal.UseExceptions() 
+warnings.simplefilter("ignore", category=RuntimeWarning)
+warnings.simplefilter('ignore', category=UserWarning)
 
 class GDALtile():
     def __init__(self, in_array:np.ndarray,posx:int, poxy:int, padx:int, pady:int, mask:np.ndarray=None ):
@@ -28,84 +33,63 @@ class GDALtile():
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike,
-                 tileSize:int=512, improve_contrast:bool=False):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512):
+        print('Reading: ' ,in_GDALfile)
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.accelerator = Accelerator(mixed_precision='fp16')
+        self.device = self.accelerator.device #torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self._load_model(weigths)
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
         self.nodata = self.inDataset.GetRasterBand(1).GetNoDataValue()
         self.tileSize = tileSize
-        self.refImage = None 
-        self.improve_contrast = improve_contrast
         
     def _load_model(self, weigths):
-        _model = MainModel()
+        _model = MainModel(accelerator=self.accelerator, net_G=ResUnet())
         _model.eval()
         with torch.inference_mode():
             _model.load_state_dict(
                 torch.load(weigths, map_location=self.device) )
         return _model
-            
-    def _infer(self, tile:GDALtile) ->  np.ndarray:
-        T_tile = torch.Tensor( ( tile.getArray() /128) -1 ).unsqueeze(0)
-        with torch.inference_mode():
-            pred = self.model.net_G( T_tile.unsqueeze(0).to(self.device) )
-        C_tile = lab_to_rgb(T_tile.unsqueeze(0), pred.cpu())[0]
-        tile.setArray( (C_tile * 255).astype(np.uint8) )
-        return tile
 
     def _inferTiles(self, tiles:Iterable[GDALtile]):
-        T_tiles = torch.cat( [ torch.Tensor(( tile.getArray() /128) -1 ).unsqueeze(0) for tile in tiles ] )
+        n_tiles  = np.array([ np.expand_dims( tile.getArray() /128 -1 , axis=0 ) for tile in tiles ]) 
+        T_tiles = torch.tensor(n_tiles, dtype=torch.float16)
         with torch.inference_mode():
             preds = self.model.net_G( T_tiles.to(self.device) )
 
         C_tiles = lab_to_rgb(T_tiles, preds.cpu())
-        for i in len(tiles):
+        for i in range(len(tiles)):
             tiles[i].setArray( (C_tiles[i] * 255).astype(np.uint8) )
         return tiles
 
     def _process_tiles(self) -> np.ndarray:
         full_img= np.zeros( (3, self.ysize ,self.xsize) , dtype=np.uint8  ) 
 
-        for tile in self._tileGenerator(self.tileSize):
-            newTile = self._infer(tile)
-
-            xoff = newTile.posx
-            yoff = newTile.posy
-            patch = newTile.getArray(self.nodata)
-            
-            if newTile.pady > 0:
-                patch = patch[0:-1 *tile.pady, :]
-            if newTile.padx > 0:
-                patch = patch[:, 0:-1*tile.padx]
-
-            bil = np.stack((patch[:,:,0], patch[:,:,1], patch[:,:,2]), axis=0).astype(np.uint8)
-            full_img[:, yoff: yoff + bil.shape[1] , xoff: xoff + bil.shape[2] ] = bil
-
-        # for tiles in self._tileGenerator(self.tileSize):
-        #     newTiles = self._inferTiles(tiles)
-        #     newTile = self._infer(tile)
-        #     for newTile in newTiles:
-        #         xoff = newTile.posx
-        #         yoff = newTile.posy
-        #         patch = newTile.getArray(self.nodata)
+        for tiles in self._tileGenerator(self.tileSize, 64):
+            newTiles = self._inferTiles(tiles)
+            for newTile in newTiles:
+                xoff = newTile.posx
+                yoff = newTile.posy
+                patch = newTile.getArray(self.nodata)
                 
-        #         if newTile.pady > 0:
-        #             patch = patch[0:-1 * newTile.pady, :]
-        #         if newTile.padx > 0:
-        #             patch = patch[:, 0:-1* newTile.padx]
+                if newTile.pady > 0:
+                    patch = patch[0:-1 * newTile.pady, :]
+                if newTile.padx > 0:
+                    patch = patch[:, 0:-1* newTile.padx]
 
-        #         bil = np.stack((patch[:,:,0], patch[:,:,1], patch[:,:,2]), axis=0).astype(np.uint8)
-        #         full_img[:, yoff: yoff + bil.shape[1] , xoff: xoff + bil.shape[2] ] = bil
+                bil = np.stack((patch[:,:,0], patch[:,:,1], patch[:,:,2]), axis=0).astype(np.uint8)
+                full_img[:, yoff: yoff + bil.shape[1] , xoff: xoff + bil.shape[2] ] = bil
 
         return full_img
 
-    def _tileGenerator(self, imsize:int) -> Iterable[GDALtile]:
+    def _tileGenerator(self, imsize:int, batchsize:int=32) -> Iterable[GDALtile]:
+        tiles = []
+        c=0
         for xi, xoff in enumerate( range(0, self.xsize , imsize)):
             for yi, yoff in  enumerate( range(0, self.ysize , imsize)):
+                c+=1
                 # Last row and column are smaller then needed for inference                
                 xsize, ysize = (imsize,imsize)
                 if (self.xsize - (xi*imsize)) < imsize:
@@ -119,45 +103,24 @@ class GDALfile_colorizer():
                 mask = None
                 if self.nodata is not None:  #replace nodata 
                     mask = img == self.nodata
-                    img[img == self.nodata] = np.median( np.ceil(img[img != self.nodata]) ).astype("uint8")
+                    img[img == self.nodata] = np.median( img[img != self.nodata] ).astype("uint8")
 
-                yield GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask)
-
-    # def _tileGenerator(self, imsize:int, batchsize:int=32) -> Iterable[GDALtile]:
-    #     tiles = []
-    #     c=0
-    #     for xi, xoff in enumerate( range(0, self.xsize , imsize)):
-    #         for yi, yoff in  enumerate( range(0, self.ysize , imsize)):
-    #             c+=1
-    #             # Last row and column are smaller then needed for inference                
-    #             xsize, ysize = (imsize,imsize)
-    #             if (self.xsize - (xi*imsize)) < imsize:
-    #                 xsize =  self.xsize - (xi*imsize)
-    #             if (self.ysize - (yi*imsize)) < imsize:
-    #                 ysize =  self.ysize - (yi*imsize)
-
-    #             img = self.inDataset.GetRasterBand(1).ReadAsArray(xoff=xoff, yoff=yoff, win_xsize=xsize, win_ysize=ysize)
-    #             img = np.pad(img, ((0, imsize- ysize),(0, imsize- xsize)),  mode='median') 
-
-    #             mask = None
-    #             if self.nodata is not None:  #replace nodata 
-    #                 mask = img == self.nodata
-    #                 img[img == self.nodata] = np.median( img[img != self.nodata] ).astype("uint8")
-
-    #             tiles.append( GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask) )
+                tiles.append( GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask) )
         
-    #     if c % batchsize == 0:
-    #         out_tiles = tiles.copy()
-    #         tiles = []
-    #         yield out_tiles
+                if c % batchsize == 0:
+                    out_tiles = tiles.copy()
+                    tiles = []
+
+                    yield out_tiles
+        if len(tiles) > 0: #return remaining tiles
+            yield tiles    
 
 
     def saveOutDataSet(self, out_GDALfile:os.PathLike, outDriver:str='GTiff', 
                        creation_options:Iterable[str]=None):
-        img_rgb = self._process_tiles() #[:,:self.ysize,:self.xsize]
-
-        if self.improve_contrast:
-            img_rgb = adjust_sigmoid( img_rgb )
+        print('Started colorisation')
+        img_rgb = self._process_tiles() 
+        print("Colorisation Done, Writing to output: "+out_GDALfile)
 
         if outDriver in ('PNG', 'JPEG', 'JPEG2000') or outDriver is None:
             fname = Path(out_GDALfile)

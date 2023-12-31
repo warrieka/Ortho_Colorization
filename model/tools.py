@@ -1,4 +1,4 @@
-import torch
+import torch, os
 from skimage.color import lab2rgb
 import numpy as np
 import matplotlib.pyplot as plt
@@ -78,6 +78,9 @@ def visualize(model, data, epoch, save_dir=''):
     else:
         plt.show()
         
-def log_results(loss_meter_dict):
+def log_results(loss_meter_dict:dict, logFile:os.PathLike):
     for loss_name, loss_meter in loss_meter_dict.items():
         print(f"{loss_name}: {loss_meter.avg:.5f}")
+    
+    with open(logFile , 'a') as log:
+        log.write( ";".join( str(i.avg) for i in loss_meter_dict.values()) + "\n")

@@ -3,7 +3,7 @@
 __pycache__
 /.idea
 /runs/models/*.pth
-/runs/pretrain/*.pth
-/runs/old/
+/runs/pretrain
+/runs/models/**
 /data/*.arrow
 

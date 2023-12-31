@@ -3,6 +3,7 @@ from PIL import Image
 import torch, shutil
 from pathlib import Path
 from model.mainModel import MainModel
+from accelerate import Accelerator
 from model.tools import lab_to_rgb
 
 IMSIZE = 512
@@ -12,7 +13,8 @@ OUT_DIR = r"W:\testdata\tiles_1995_rgb"
 FORMAT = 'png' #or 'jpg'
 
 if __name__ == '__main__':
-    model = MainModel()
+    accelerator = Accelerator(mixed_precision='fp16')
+    model = MainModel(accelerator=accelerator)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.load_state_dict(
         torch.load( MODEL , map_location=device ) )

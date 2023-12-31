@@ -1,37 +1,65 @@
-import torch
+import torch, os
+from pathlib import Path
 from torch import nn, optim
 from fastai.vision.learner import create_body
 from fastai.vision.models.unet import DynamicUnet
-import timm, datetime
+import timm
 from tqdm import tqdm
+from torch.utils.data import DataLoader
 from .tools import AverageMeter
 
-def pretrain_generator(net_G, pretrain_dl, epochs=20):
-    opt = optim.Adam(net_G.parameters(), lr=1e-4)
-    criterion = nn.L1Loss()     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# multi-GPU support  
+from accelerate import Accelerator
 
-    for e in range(1,epochs):
+def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader, 
+               epochs:int=20, lrate:float=1e-4, 
+               stateDict:os.PathLike='runs\\pretrain', 
+               resumeWeigths:os.PathLike='runs\\pretrain' ) -> DynamicUnet:
+    
+    stateDict  = Path(stateDict)
+    accelerator = Accelerator(mixed_precision='fp16', project_dir=stateDict.parent)
+    opt = optim.Adam(net_G.parameters(), lr=lrate)
+    l1Loss = nn.L1Loss() 
+    
+    resumeWeigths = Path(resumeWeigths) if resumeWeigths is not None else None
+    if resumeWeigths is not None and resumeWeigths.is_file():
+        print(f"resuming from {resumeWeigths}")
+        net_G.load_state_dict( torch.load(resumeWeigths) )
+
+    pretrain_dl, net_G, opt = accelerator.prepare(
+         pretrain_dl, net_G, opt
+    )
+    
+    if resumeWeigths is not None and resumeWeigths.is_dir():
+        print(f"resuming from {resumeWeigths}")
+        accelerator.load_state(resumeWeigths)
+
+    for e in range(epochs):
         loss_meter = AverageMeter()
         for pretrain_data in tqdm(pretrain_dl):
-            L, ab = pretrain_data['L'].to(device), pretrain_data['ab'].to(device)
+            L = pretrain_data['L'] 
+            ab = pretrain_data['ab'] 
             preds = net_G(L)
-            loss = criterion(preds, ab)
-            opt.zero_grad()
-            loss.backward()
+            loss = l1Loss(preds, ab)
+            accelerator.backward(loss)
             opt.step()
-            
+            opt.zero_grad()
             loss_meter.update(loss.item(), L.size(0))
-            
-        print(f"Epoch {e}/{epochs}")
-        print(f"L1 Loss: {loss_meter.avg:.5f}")
+
+        print(f"Epoch {e+1}/{epochs}")
+        print(f"L1 Loss: {loss_meter.avg:.5f} after {loss_meter.count:.0f} items")
+    
+        accelerator.wait_for_everyone()
+        accelerator.save_state(stateDict.parent)
+
+    torch.save(net_G.state_dict(), stateDict )
     return net_G
 
-def ResUnet(n_input=1, n_output=2, size=224, timm_model_name='resnet18'):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = timm.create_model(timm_model_name, pretrained=True)
-    body = create_body(model, pretrained=True, n_in=n_input, cut=-2)
-    net_G = DynamicUnet(body, n_output, (size, size)).to(device)
+def ResUnet(n_input:int=1, n_output:int=2, size:int=224, 
+            timm_model_name:str='resnet18') -> DynamicUnet:
+    model = timm.create_model(timm_model_name, pretrained=False)
+    body =  create_body(model, pretrained=False, n_in=n_input, cut=-2)
+    net_G = DynamicUnet(body, n_output, (size, size))
     return net_G
 
 class UnetBlock(nn.Module):

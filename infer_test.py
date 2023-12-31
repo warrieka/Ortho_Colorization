@@ -1,15 +1,16 @@
 from pathlib import Path
 from model.GDALfile_colorizer import GDALfile_colorizer
 
-IMAGE_SIZE = 224
-MODEL =  Path(f'.\\runs\\models\\color_run18_0.60m_{IMAGE_SIZE}.pth').resolve()
-IN_FILES = r"V:\project\histo\tests\in\*.png"
+IMAGE_SIZE = 512
+MODEL =  Path(f".\\runs\\models\\run26\\color_run26_512.pth").resolve()
+IN_FILES = r"V:\project\histo\moz\*.tif"
 OUT_DIR = r"V:\project\histo\tests\out"
 MAX_CONTRAST = False
 #Optional, defaults to geotiff: 
-GDAL_DRV = 'PNG'
+GDAL_DRV = 'GTiff'
 #supported output formats  by GDAL driver
-GDAL_FORMATS = {"GTiff" :".tif", #Regular Geotiff
+GDAL_FORMATS = {
+    "GTiff" :".tif", #Regular Geotiff
     "PNG":".png",   #Portable Network Graphics
     "JPEG":".jpg",  #Joint Photography Experts Group JFIF File Format
     "JPEG2000":".jp2", #Joint Photography Experts, JPEG2000 based on OpenJPEG library v2
