@@ -1,11 +1,11 @@
 from pathlib import Path
+import argparse
 from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
 MODEL = Path(r".\runs\models\run26\color_run26_512_epoch16.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
 IN_FILES = r"W:\1968\*.tif"
 OUT_DIR =  r"W:\1968_rbg"
-BATCH_SIZE = 16
 #Optional, defaults to geotiff: 
 GDAL_DRV = 'GTiff'
 #supported output formats  by GDAL driver
@@ -26,8 +26,31 @@ GDAL_FORMATS = {
 
 
 if __name__ == '__main__':
-    infiles = Path(IN_FILES)
+    parser = argparse.ArgumentParser( description=
+      'Deeplearing model to colorize black&white orthophoto\'s.\n'+
+      'This tool let you use the model to colorize a gdal readable files.')
+    
+    parser.add_argument('--input', default=IN_FILES, type=Path, 
+        help='The input file(s), you can use a glob expression like "*.tif" to specify multiple files')
+    
+    parser.add_argument('--out_dir', default=OUT_DIR, type=Path, 
+        help='The output location of the resulting colorisation, don\'t use the input folder!.')
+        
+    parser.add_argument('--out_driver', default=GDAL_DRV,
+        help='The output gdal driver to use to write output,\n'+
+        'only drivers that support "create" can be used (see https://gdal.org/drivers/raster/)')
+    
+    parser.add_argument('--batch_size', default=16, type=int, 
+        help='the size of batch the algoritem sends to the GPU in 1 batch, \n'+
+        'If you get CUDA of of memory issues, try to decreaser the batch')
+
+    opts = parser.parse_args()
+
+    infiles = opts.input.resolve()
+    out_dir = opts.out_dir.resolve()
+    drv = opts.out_driver
+
     for gdFile in infiles.parent.glob( infiles.name ):
-        outFile = Path(OUT_DIR) / f'{gdFile.stem}{GDAL_FORMATS[GDAL_DRV]}'
-        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, BATCH_SIZE)
-        gfc.saveOutDataSet(outFile, GDAL_DRV)
+        outFile = out_dir / f'{gdFile.stem}{GDAL_FORMATS[drv]}'
+        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size)
+        gfc.saveOutDataSet(outFile, drv)

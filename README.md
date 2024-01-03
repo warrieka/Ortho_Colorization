@@ -1,13 +1,17 @@
 Orthophoto Colorisation with deeplearning
 ===========================
 
-Deeplearing model to colorize historical black&white orthophotos.
+Deeplearing model to colorize historical black&white orthophotos(1).
 
-More info see: [exploration.ipynb](exploration.ipynb)
+(1): *An orthophotos is an aerial photograph geometrically corrected ("orthorectified") such that the scale is uniform. It is the basis for most mapping solutions.*
+
+Background:
+------------
 
 The model was based on instructions found in [Colorizing black & white images with U-Net and conditional GAN][0] by *Moein Shariatnia* Published in *Towards Data Science*.
 This example for ESRI where they generate fake a orthophoto from elevation, was also an inpiration for this model: [Generating rgb imagery from surface elevation using Pix2Pix][6]  
-
+Both articles are based the original paper by Phillip Isola Et al.: [Image-to-Image Translation with Conditional Adversarial Networks][7]
+ 
 But I made several changes to fit it to training en infering on older geospatial orthophoto's, like a specific augmentation function and reading data with [GDAL][1] a library that preserves geospacial metadata when reading data and offers several utilities to deal with geodata, unlike Pillow, torchvision or OpenCV.  
 
 Source data 
@@ -61,12 +65,31 @@ I trained the final model for 20 epoch's on 50000 images of 512x512 pixels with 
 
 You can see the result for each epoch on this gif: 
 
-![](pic\training.gif)
+![](pic/training.gif)
 
 Inference and testing
 ---------------------
 
-TODO
+The script to test inference is called `infer_test.py`. 
+It allows tou to convert a GDAL-readable black&white source to colorized data. 
+You can have multiple inputs by using glob expression (*.tif). 
+Outputs are written to a [gdal-driver][8] that supports `create`, like Geotiff.
+It preserves geo-spatial metadata, like crs and geotransform.  
+
+Options:
+
+    -h, --help          Show this help message and exit.
+    --input INPUT       The input file(s), you can use a glob expression like "*.tif" to specify multiple files
+    --out_dir OUT_DIR   The output location of the resulting colorisation, don't use the input folder!
+    --out_driver OUT_DRIVER
+                        The output gdal driver to use to write output, 
+                        only drivers that support "create" can be used.
+                        (see https://gdal.org/drivers/raster/)
+    --batch_size BATCH_SIZE
+                        the size of batch the algoritem sends to the GPU in 1 batch, 
+                        If you get CUDA of of memory issues, try to decreaser the batch.
+
+
 
 [0]: https://towardsdatascience.com/colorizing-black-white-images-with-u-net-and-conditional-gan-a-tutorial-81b2df111cd8
 [1]: https://gdal.org/api/python/osgeo.gdal.html
@@ -75,3 +98,5 @@ TODO
 [4]: https://www.ngi.be/website/aanbod/digitale-geodata/orthofotos/
 [5]: https://huggingface.co/docs/accelerate/
 [6]: https://developers.arcgis.com/python/samples/generating-rgb-imagery-from-digital-surface-model-using-pix2pix/
+[7]: https://arxiv.org/abs/1611.07004
+[8]: https://gdal.org/drivers/raster
