@@ -7,7 +7,7 @@ import torch, os
 from pathlib import Path
 import pandas as pd
 from torch.utils.data import Dataset
-from torchvision.transforms.v2 import RandomResizedCrop, CenterCrop, Compose, GaussianBlur, ToDtype
+from torchvision.transforms.v2 import RandomResizedCrop, CenterCrop
 from typing import Iterable
 
 def makeSubsetsFromList(list_imgs:Iterable[os.PathLike], 
@@ -27,9 +27,9 @@ def makeSubsetsFromList(list_imgs:Iterable[os.PathLike],
     return train_paths, test_paths
 
 def makeWeightedDatasetFromFeather(arrow:os.PathLike, size:int=4000,
-             pathField:str='path', weigthField:str='WEIGHT', replacement:bool=False):
+             pathField:str='path', weightField:str='WEIGHT', replacement:bool=False):
     ds= pd.read_feather(arrow)
-    paths = ds.sample(size, weights=weigthField, replace=replacement)[pathField]
+    paths = ds.sample(size, weights=weightField, replace=replacement)[pathField]
     return list(paths)
 
 def grainify(img:np.ndarray):
@@ -59,7 +59,7 @@ class ColorizationDataset(Dataset):
         self.root = rootDir
         self.resize = resize
 
-    def _aug(self, img):
+    def aug(self, img:np.ndarray):
         "some data augmentation on img "
         if self.resize:
             minscale = self.size / img.size(1)
@@ -73,7 +73,7 @@ class ColorizationDataset(Dataset):
 
     def __getitem__(self, idx:int):
         img = read_image( str(Path(self.root) / self.paths[idx]) , ImageReadMode.RGB ) 
-        img = self._aug(img)                              
+        img = self.aug(img)                              
         img_lab = rgb2lab( img.numpy() , channel_axis=0 ) # Converting RGB to L*a*b
         img_lab = torch.tensor(img_lab, dtype=torch.float16)
        

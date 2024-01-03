@@ -6,4 +6,4 @@ __pycache__
 /runs/pretrain
 /runs/models/**
 /data/*.arrow
-
+/runs/demo/**

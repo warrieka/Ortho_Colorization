@@ -33,7 +33,7 @@ class GDALtile():
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, batch_size:int=32):
         print('Reading: ' ,in_GDALfile)
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
@@ -44,6 +44,7 @@ class GDALfile_colorizer():
         self.ysize = self.inDataset.RasterYSize
         self.nodata = self.inDataset.GetRasterBand(1).GetNoDataValue()
         self.tileSize = tileSize
+        self.batchsize = batch_size
         
     def _load_model(self, weigths):
         _model = MainModel(accelerator=self.accelerator, net_G=ResUnet())
@@ -67,8 +68,13 @@ class GDALfile_colorizer():
     def _process_tiles(self) -> np.ndarray:
         full_img= np.zeros( (3, self.ysize ,self.xsize) , dtype=np.uint8  ) 
 
-        for tiles in self._tileGenerator(self.tileSize, 64):
+        c = 0
+        tot = ((self.xsize//self.tileSize)+1)*((self.ysize//self.tileSize)+1)
+        for tiles in self._tileGenerator():
+            print(f'{c} of {tot} tiles', end='\r')
             newTiles = self._inferTiles(tiles)
+            c += len(tiles)
+            
             for newTile in newTiles:
                 xoff = newTile.posx
                 yoff = newTile.posy
@@ -84,34 +90,34 @@ class GDALfile_colorizer():
 
         return full_img
 
-    def _tileGenerator(self, imsize:int, batchsize:int=32) -> Iterable[GDALtile]:
+    def _tileGenerator(self) -> Iterable[GDALtile]:
         tiles = []
         c=0
-        for xi, xoff in enumerate( range(0, self.xsize , imsize)):
-            for yi, yoff in  enumerate( range(0, self.ysize , imsize)):
+        for xi, xoff in enumerate( range(0, self.xsize , self.tileSize)):
+            for yi, yoff in  enumerate( range(0, self.ysize , self.tileSize)):
                 c+=1
                 # Last row and column are smaller then needed for inference                
-                xsize, ysize = (imsize,imsize)
-                if (self.xsize - (xi*imsize)) < imsize:
-                    xsize =  self.xsize - (xi*imsize)
-                if (self.ysize - (yi*imsize)) < imsize:
-                    ysize =  self.ysize - (yi*imsize)
+                xsize, ysize = (self.tileSize,self.tileSize)
+                if (self.xsize - (xi*self.tileSize)) < self.tileSize:
+                    xsize =  self.xsize - (xi*self.tileSize)
+                if (self.ysize - (yi*self.tileSize)) < self.tileSize:
+                    ysize =  self.ysize - (yi*self.tileSize)
 
                 img = self.inDataset.GetRasterBand(1).ReadAsArray(xoff=xoff, yoff=yoff, win_xsize=xsize, win_ysize=ysize)
-                img = np.pad(img, ((0, imsize- ysize),(0, imsize- xsize)),  mode='median') 
+                img = np.pad(img, ((0, self.tileSize- ysize),(0, self.tileSize- xsize)),  mode='median') 
 
                 mask = None
                 if self.nodata is not None:  #replace nodata 
                     mask = img == self.nodata
                     img[img == self.nodata] = np.median( img[img != self.nodata] ).astype("uint8")
 
-                tiles.append( GDALtile(img, xoff, yoff, imsize- xsize , imsize- ysize, mask) )
+                tiles.append( GDALtile(img, xoff, yoff, self.tileSize- xsize , self.tileSize- ysize, mask) )
         
-                if c % batchsize == 0:
+                if c % self.batchsize == 0:
                     out_tiles = tiles.copy()
                     tiles = []
-
                     yield out_tiles
+
         if len(tiles) > 0: #return remaining tiles
             yield tiles    
 
@@ -120,7 +126,7 @@ class GDALfile_colorizer():
                        creation_options:Iterable[str]=None):
         print('Started colorisation')
         img_rgb = self._process_tiles() 
-        print("Colorisation Done, Writing to output: "+out_GDALfile)
+        print("\nColorisation Done, Writing to output: ", out_GDALfile)
 
         if outDriver in ('PNG', 'JPEG', 'JPEG2000') or outDriver is None:
             fname = Path(out_GDALfile)
