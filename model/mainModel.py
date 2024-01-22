@@ -8,14 +8,19 @@ from .unet import Unet
 class GANLoss(nn.Module):
     def __init__(self, accelerator:Accelerator=None):
         super().__init__()
-        self.device = accelerator.device
-        self.register_buffer('real_label', torch.tensor(True, dtype=torch.float16))
-        self.register_buffer('fake_label', torch.tensor(False, dtype=torch.float16))
-        # self.loss = nn.BCEWithLogitsLoss()
+        if accelerator and accelerator.mixed_precision == 'bf16':
+            self.dtype = torch.bfloat16 
+        elif accelerator and accelerator.mixed_precision == 'fp16':
+            self.dtype = torch.float16
+        else:
+            self.dtype = torch.float32
+        self.device = accelerator.device if accelerator else torch.device('cpu')
+        self.register_buffer('real_label', torch.tensor(True, dtype=self.dtype ))
+        self.register_buffer('fake_label', torch.tensor(False, dtype=self.dtype ))
         self.loss = accelerator.prepare( nn.BCEWithLogitsLoss() )
     
     def __call__(self, preds, target_is_real):
-        labels = torch.tensor(target_is_real, dtype=torch.float16).expand_as(preds)
+        labels = torch.tensor(target_is_real, dtype=self.dtype).expand_as(preds)
         loss = self.loss(preds, labels.to(self.device) )
         return loss
 

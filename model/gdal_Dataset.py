@@ -1,13 +1,15 @@
 from osgeo import gdal
 gdal.UseExceptions()
-import torch
+import torch, os
+from pathlib import Path
+import pandas as pd
 import numpy as np
 from skimage.color import rgb2lab
-from skimage.exposure import adjust_gamma
 from skimage.util import random_noise
-from skimage.filters import gaussian
 from torch.utils.data import IterableDataset
 from torchvision.transforms import v2
+from torchvision.io import read_image, ImageReadMode
+from .tools import grainify
 
 class gdalTrainDataset(IterableDataset):
     def __init__(self, path, imsize=256, xSkip=0, yskip=0):
@@ -105,3 +107,45 @@ class gdalTestDataset(IterableDataset):
                 yield {'L': L, 'ab': ab, 'transform': transformMatrix}
 
 
+
+class arrowDataset(IterableDataset):
+    def __init__(self, arrow:os.PathLike, imsize:int=256, pathField:str='path', weightField:str='WEIGHT',
+                 rootDir:os.PathLike='', resize:bool=True, grainify:bool=True, count:int=None ):
+        super().__init__()
+        self.size = imsize
+        self.weightField = weightField
+        self.pathField = pathField
+        self.ds= pd.read_feather(arrow)
+        self.c = count if count else len(self.ds)
+        self.replace =  self.c > len(self.ds)//20
+        self.root = Path( rootDir )
+        self.resize = resize
+        self.augment = grainify
+
+    def aug(self, img:np.ndarray):
+        "some data augmentation on img "
+        if self.resize:
+            minscale = self.size / img.size(1)
+            img = v2.RandomResizedCrop( self.size, (minscale,1), antialias=True)(img)
+        else:
+            img = v2.CenterCrop(self.size)(img)
+        
+        if self.augment and np.random.uniform() > 0.7:
+           img = torch.tensor( grainify(img.numpy()) )
+        return img
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        worker_num  = worker_info.num_workers if worker_info is not None else 1
+        for _ in range(self.c // worker_num):
+            path = self.ds.sample(weights=self.weightField, replace=self.replace)[self.pathField].item()
+            img = read_image( str( self.root / path ) , ImageReadMode.RGB ) 
+            img = self.aug(img)                              
+            img_lab = rgb2lab( img.numpy() , channel_axis=0 ) # Converting RGB to L*a*b
+            img_lab = torch.tensor(img_lab, dtype=torch.bfloat16)
+            L =  (img_lab[0] / 50. - 1).unsqueeze(0) # Between -1 and 1
+            ab = img_lab[1:3] / 110  # Between -1 and 1
+            yield {'L': L, 'ab': ab}
+        
+    def __len__(self):
+        return self.c

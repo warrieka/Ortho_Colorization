@@ -17,7 +17,7 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
                resumeWeigths:os.PathLike='runs\\pretrain' ) -> DynamicUnet:
     
     stateDict  = Path(stateDict)
-    accelerator = Accelerator(mixed_precision='fp16', project_dir=stateDict.parent)
+    accelerator = Accelerator(mixed_precision='bf16', project_dir=stateDict.parent)
     opt = optim.Adam(net_G.parameters(), lr=lrate)
     l1Loss = nn.L1Loss() 
     
@@ -47,7 +47,7 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
             loss_meter.update(loss.item(), L.size(0))
 
         print(f"Epoch {e+1}/{epochs}")
-        print(f"L1 Loss: {loss_meter.avg:.5f} after {loss_meter.count:.0f} items")
+        print(f"L1 Loss: {loss_meter.avg:.8f} after {loss_meter.count:.0f} items")
     
         accelerator.wait_for_everyone()
         accelerator.save_state(stateDict.parent)
@@ -55,10 +55,10 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
     torch.save(net_G.state_dict(), stateDict )
     return net_G
 
-def ResUnet(n_input:int=1, n_output:int=2, size:int=224, 
+def ResUnet(n_input:int=1, n_output:int=2, size:int=256, 
             timm_model_name:str='resnet18') -> DynamicUnet:
-    model = timm.create_model(timm_model_name, pretrained=False)
-    body =  create_body(model, pretrained=False, n_in=n_input, cut=-2)
+    model = timm.create_model(timm_model_name, pretrained=True)
+    body =  create_body(model, pretrained=True, n_in=n_input, cut=-2)
     net_G = DynamicUnet(body, n_output, (size, size))
     return net_G
 

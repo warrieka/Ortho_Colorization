@@ -4,39 +4,40 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model.tools import create_loss_meters, update_losses, log_results, visualize
 from model.unet import ResUnet
-from model.pil_Dataset import makeWeightedDatasetFromFeather, ColorizationDataset #, makeSubsetsFromList
+# from model.pil_Dataset import makeWeightedDatasetFromFeather, ColorizationDataset 
+from model.gdal_Dataset import arrowDataset
 from model.mainModel import MainModel
 # multi-GPU support  
 from accelerate import Accelerator
 
 # HYPERPARAMETERS
 IMAGE_SIZE = 512
-EPOCHS =     20
-START_EPOCH = 0
-TRAIN_DS_SIZE = 50000
-LR_GENERATOR =     5e-4
-LR_DISCRIMINATOR = 5e-4
+ARCHITECTURE = 'resnet34'
+EPOCHS =     70
+START_EPOCH = 50
+TRAIN_DS_SIZE = 20000
+
+LR_GENERATOR =     2e-5
+LR_DISCRIMINATOR = 2e-5
 FEATHER_DS =      Path('.\\data\\tiles_2015_Weighted.arrow')
 DS_PATH_FIELD =   'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
-PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet18_0.60m_224_run0.pth")
-OUT_STATE_DICT =  Path(f'.\\runs\\models\\run26\\color_run26_{IMAGE_SIZE}.pth')
-RESUME = None #Path(f'.\\runs\\models\\run26\\color_run26_512_epoch20.pth')
-
+PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet34_256_run7.pth")
+OUT_STATE_DICT =  Path(f'.\\runs\\models\\run29\\color_run29_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
+RESUME =  Path(f'.\\runs\\models\\run29\\color_run29_resnet34_512_epoch50.pth')
 
 def train_model(train_dl, test_dl, opts):
-
     proj_dir = opts.output_weights.parent.resolve()
     pretrained = opts.pretrained_weights.resolve() if opts.pretrained_weights else None
 
-    accelerator = Accelerator(mixed_precision='fp16', project_dir=proj_dir)
+    accelerator = Accelerator(mixed_precision='bf16', project_dir=proj_dir)
     train_dl, test_dl = accelerator.prepare(train_dl, test_dl)
 
     if pretrained and pretrained.exists():
-        net_G = ResUnet(n_input=1, n_output=2)
+        net_G = ResUnet(n_input=1, n_output=2, timm_model_name=opts.architecture )
         net_G.load_state_dict(torch.load(pretrained))
     else:
-        net_G = None
+        raise "no pretrained dict"
 
     model = MainModel(lr_G=opts.lr_net_G, lr_D=opts.lr_net_D, 
                       net_G=net_G, accelerator=accelerator)
@@ -72,21 +73,22 @@ def train_model(train_dl, test_dl, opts):
         torch.save(model.state_dict(), proj_dir / f"{opts.output_weights.stem}_epoch{e+1}.pth" )
 
     print(f"Training ended at {datetime.datetime.now()}")
-    torch.save(model.state_dict(), opts.output_weights)
+    torch.save(model.net_G.state_dict(), proj_dir / f"{opts.output_weights.stem}_net_G.pth" ) 
 
 def main(opts): 
     test_ds_size  = opts.epochs *6
-    train_paths= makeWeightedDatasetFromFeather( 
-            arrow=opts.dataset.resolve(), size=opts.train_size,
-            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field )
-    test_paths = makeWeightedDatasetFromFeather( 
-            arrow=opts.dataset.resolve(), size=test_ds_size,
-            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field )
 
-    train_dl = DataLoader(ColorizationDataset(train_paths, imsize=opts.imsize ), 
-                        num_workers=4, pin_memory=True, batch_size=8)
-    test_dl = DataLoader(ColorizationDataset(test_paths, imsize=opts.imsize ), 
-                        num_workers=2, pin_memory=True, batch_size=4)
+    train_ds = arrowDataset(arrow=opts.dataset.resolve(), imsize=opts.imsize, 
+                            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field,
+                            count=opts.train_size)
+
+    test_ds = arrowDataset( arrow=opts.dataset.resolve(), imsize=opts.imsize, 
+                            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field,
+                            count=test_ds_size)
+
+    train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=8)
+    test_dl = DataLoader( test_ds, num_workers=2, pin_memory=True, batch_size=4)
+
     train_model(train_dl, test_dl, opts)
 
 if __name__ == "__main__":
@@ -116,6 +118,8 @@ if __name__ == "__main__":
                     help='Resume traings from these weights')
     parser.add_argument('--resume_epoch', default=START_EPOCH, type=int, 
                     help='The epoch to resume from.')
+    parser.add_argument('--architecture', default=ARCHITECTURE,  
+                    help='The architecture of the UNET, for example "resnet18" ')
 
     opts = parser.parse_args()
     main(opts)

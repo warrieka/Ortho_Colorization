@@ -3,11 +3,12 @@ import argparse
 from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
-MODEL = Path(r".\runs\models\run26\color_run26_512_epoch16.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
-IN_FILES = r"W:\1968\*.tif"
-OUT_DIR =  r"W:\1968_rbg"
+ARCHITECTURE = "resnet34"
+MODEL = Path(r".\runs\models\run29\color_run29_resnet34_512_epoch70.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
+IN_FILES = r"V:\project\histo\tests\in\*.png"
+OUT_DIR =  r"V:\project\histo\tests\out"
 #Optional, defaults to geotiff: 
-GDAL_DRV = 'GTiff'
+GDAL_DRV = 'PNG'
 #supported output formats  by GDAL driver
 GDAL_FORMATS = {
     "GTiff" :".tif", #Regular Geotiff
@@ -52,5 +53,5 @@ if __name__ == '__main__':
 
     for gdFile in infiles.parent.glob( infiles.name ):
         outFile = out_dir / f'{gdFile.stem}{GDAL_FORMATS[drv]}'
-        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size)
+        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size, ARCHITECTURE)
         gfc.saveOutDataSet(outFile, drv)

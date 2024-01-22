@@ -33,12 +33,13 @@ class GDALtile():
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, batch_size:int=32):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, batch_size:int=32, unet_arch:str='resnet18'):
         print('Reading: ' ,in_GDALfile)
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
         self.accelerator = Accelerator(mixed_precision='fp16')
         self.device = self.accelerator.device #torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.unet = ResUnet(timm_model_name=unet_arch)
         self.model = self._load_model(weigths)
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
@@ -47,7 +48,7 @@ class GDALfile_colorizer():
         self.batchsize = batch_size
         
     def _load_model(self, weigths):
-        _model = MainModel(accelerator=self.accelerator, net_G=ResUnet())
+        _model = MainModel(accelerator=self.accelerator, net_G=   self.unet)
         _model.eval()
         with torch.inference_mode():
             _model.load_state_dict(

@@ -1,14 +1,13 @@
 from torchvision.io import read_image, ImageReadMode
 import numpy as np
 from skimage.color import rgb2lab
-from skimage.util import random_noise
-from skimage.transform import resize
 import torch, os
 from pathlib import Path
 import pandas as pd
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import RandomResizedCrop, CenterCrop
 from typing import Iterable
+from .tools import grainify
 
 def makeSubsetsFromList(list_imgs:Iterable[os.PathLike], 
                         size:int=4000, test_size:int=400, all:bool=False):
@@ -32,32 +31,16 @@ def makeWeightedDatasetFromFeather(arrow:os.PathLike, size:int=4000,
     paths = ds.sample(size, weights=weightField, replace=replacement)[pathField]
     return list(paths)
 
-def grainify(img:np.ndarray):
-    c, rows, cols = img.shape
-    val = np.random.uniform(0.036, 0.107)**2 
-
-    # Full resolution
-    noise_1 = np.zeros((rows, cols))
-    noise_1 = random_noise(noise_1, mode='gaussian', var=val, clip=False)
-
-    # # Half resolution
-    noise_2 = np.zeros((rows//2, cols//2))
-    noise_2 = random_noise(noise_2, mode='gaussian', var=(val*2)**2, clip=False)  
-    noise_2 = resize(noise_2, (rows, cols))  # Upscale to original image size
-
-    noise = noise_1 + noise_2 
-    noise = np.stack( [noise]*c, axis=0)
-    
-    noisy_img = img/255 + noise # Add noise_im to the input image.
-    return np.round((255 * noisy_img)).clip(0, 255).astype(np.uint8)
 
 class ColorizationDataset(Dataset):
-    def __init__(self, paths:Iterable[os.PathLike], imsize:int=256, rootDir:str='', resize:bool=True):
+    def __init__(self, paths:Iterable[os.PathLike], imsize:int=256, 
+                 rootDir:str='', resize:bool=True, grainify:bool=True ):
         super().__init__()
         self.size = imsize
         self.paths = paths
         self.root = rootDir
         self.resize = resize
+        self.augment = grainify
 
     def aug(self, img:np.ndarray):
         "some data augmentation on img "
@@ -67,7 +50,7 @@ class ColorizationDataset(Dataset):
         else:
             img = CenterCrop(self.size)(img)
         
-        if np.random.uniform() > 0.7:
+        if self.augment and np.random.uniform() > 0.7:
            img = torch.tensor( grainify(img.numpy()) )
         return img
 
@@ -75,7 +58,7 @@ class ColorizationDataset(Dataset):
         img = read_image( str(Path(self.root) / self.paths[idx]) , ImageReadMode.RGB ) 
         img = self.aug(img)                              
         img_lab = rgb2lab( img.numpy() , channel_axis=0 ) # Converting RGB to L*a*b
-        img_lab = torch.tensor(img_lab, dtype=torch.float16)
+        img_lab = torch.tensor(img_lab, dtype=torch.bfloat16)
        
         L =  (img_lab[0] / 50. - 1).unsqueeze(0) # Between -1 and 1
         ab = img_lab[1:3] / 110  # Between -1 and 1
@@ -84,3 +67,4 @@ class ColorizationDataset(Dataset):
     def __len__(self):
         return len(self.paths)
     
+

@@ -1,5 +1,7 @@
 import torch, os
 from skimage.color import lab2rgb
+from skimage.util import random_noise
+from skimage.transform import resize
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -19,7 +21,7 @@ class AverageMeter:
 def lab_to_rgb(L, ab):
     L = (L + 1.) * 50.
     ab = ab * 110.
-    Lab = torch.cat([L, ab], dim=1).permute(0, 2, 3, 1).cpu().numpy()
+    Lab = torch.cat([L, ab], dim=1).permute(0, 2, 3, 1).to(torch.float32).cpu().numpy()
     rgb_imgs = []
     for img in Lab:
         img_rgb = lab2rgb(img)
@@ -47,11 +49,9 @@ def update_losses(model, loss_meter_dict, count):
         loss_meter.update(loss.item(), count=count)
 
 def visualize(model, data, epoch, save_dir=''):
-    model.net_G.eval()
     with torch.inference_mode():
         model.setup_input(data)
         model.forward()
-    model.net_G.train()
     fake_color = model.fake_color.detach()
     real_color = model.ab
     L = model.L
@@ -61,7 +61,7 @@ def visualize(model, data, epoch, save_dir=''):
     fig.suptitle(f'Colorisation at Epoch {epoch+1}')
     for i in range(4):
         ax = plt.subplot(3, 4, i + 1)
-        ax.imshow(L[i][0].cpu(), cmap='gray')
+        ax.imshow(L[i][0].to(torch.float32).cpu(), cmap='gray')
         ax.set_title("INPUT GRAY")
         ax.axis("off")
         ax = plt.subplot(3, 4, i + 5)
@@ -84,3 +84,23 @@ def log_results(loss_meter_dict:dict, logFile:os.PathLike):
     
     with open(logFile , 'a') as log:
         log.write( ";".join( str(i.avg) for i in loss_meter_dict.values()) + "\n")
+
+
+def grainify(img:np.ndarray):
+    c, rows, cols = img.shape
+    val = np.random.uniform(0.036, 0.107)**2 
+
+    # Full resolution
+    noise_1 = np.zeros((rows, cols))
+    noise_1 = random_noise(noise_1, mode='gaussian', var=val, clip=False)
+
+    # # Half resolution
+    noise_2 = np.zeros((rows//2, cols//2))
+    noise_2 = random_noise(noise_2, mode='gaussian', var=(val*2)**2, clip=False)  
+    noise_2 = resize(noise_2, (rows, cols))  # Upscale to original image size
+
+    noise = noise_1 + noise_2 
+    noise = np.stack( [noise]*c, axis=0)
+    
+    noisy_img = img/255 + noise # Add noise_im to the input image.
+    return np.round((255 * noisy_img)).clip(0, 255).astype(np.uint8)
