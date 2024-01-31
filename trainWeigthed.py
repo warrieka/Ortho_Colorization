@@ -4,7 +4,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model.tools import create_loss_meters, update_losses, log_results, visualize
 from model.unet import ResUnet
-# from model.pil_Dataset import makeWeightedDatasetFromFeather, ColorizationDataset 
 from model.gdal_Dataset import arrowDataset
 from model.mainModel import MainModel
 # multi-GPU support  

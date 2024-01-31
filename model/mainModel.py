@@ -17,7 +17,10 @@ class GANLoss(nn.Module):
         self.device = accelerator.device if accelerator else torch.device('cpu')
         self.register_buffer('real_label', torch.tensor(True, dtype=self.dtype ))
         self.register_buffer('fake_label', torch.tensor(False, dtype=self.dtype ))
-        self.loss = accelerator.prepare( nn.BCEWithLogitsLoss() )
+        if accelerator:
+           self.loss = accelerator.prepare( nn.BCEWithLogitsLoss() )
+        else:
+           self.loss = nn.BCEWithLogitsLoss()
     
     def __call__(self, preds, target_is_real):
         labels = torch.tensor(target_is_real, dtype=self.dtype).expand_as(preds)
@@ -50,7 +53,8 @@ class MainModel(nn.Module):
         self.opt_G = optim.Adam(self.net_G.parameters(), lr=lr_G, betas=(beta1, beta2))
         self.opt_D = optim.Adam(self.net_D.parameters(), lr=lr_D, betas=(beta1, beta2))
 
-        self.net_G, self.net_D, self.GAN_loss, self.opt_G, self.opt_D = self.accelerator.prepare( 
+        if self.accelerator:
+            self.net_G, self.net_D, self.GAN_loss, self.opt_G, self.opt_D = self.accelerator.prepare( 
                                      self.net_G, self.net_D, self.GAN_loss, self.opt_G, self.opt_D )
     @staticmethod
     def init_weights(net, init:str='norm', gain:float=0.02):
@@ -92,8 +96,12 @@ class MainModel(nn.Module):
         real_preds = self.net_D(real_image)
         self.loss_D_real = self.GAN_loss(real_preds, True)
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
-        #self.loss_D.backward()
-        self.accelerator.backward(self.loss_D)
+
+        if self.accelerator:
+            self.accelerator.backward(self.loss_D)
+        else:
+            self.loss_D.backward()
+
 
     def backward_G(self):
         fake_image = torch.cat([self.L, self.fake_color], dim=1)
@@ -101,8 +109,11 @@ class MainModel(nn.Module):
         self.loss_G_GAN = self.GAN_loss(fake_preds, True)
         self.loss_G_L1 = self.L1_loss(self.fake_color, self.ab) * self.lambda_L1
         self.loss_G = self.loss_G_GAN + self.loss_G_L1
-        #self.loss_G.backward()
-        self.accelerator.backward(self.loss_G)
+
+        if self.accelerator:
+            self.accelerator.backward(self.loss_G)
+        else:
+            self.loss_G.backward()
     
     def optimize(self):
         self.forward()

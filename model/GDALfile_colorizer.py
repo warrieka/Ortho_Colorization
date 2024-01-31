@@ -140,8 +140,9 @@ class GDALfile_colorizer():
         drv = gdal.GetDriverByName(outDriver)
         ## Options for a Geotiff (.tif) 
         if creation_options is None and outDriver == 'GTiff':
-            creation_options = [ 'BIGTIFF=YES', 'INTERLEAVE=BAND', 'COMPRESS=JPEG',
-                    'Tiled=YES', f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
+            creation_options = [ 'BIGTIFF=YES', 'INTERLEAVE=BAND', 'COMPRESS=DEFLATE',
+                    'PREDICTOR=2', 'ZLEVEL=9','Tiled=YES', 
+                    f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
                     'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS'  ]
         ## Options for a GeoPackage (.gpkg) 
         elif creation_options is None and outDriver == 'GPKG':
@@ -160,8 +161,7 @@ class GDALfile_colorizer():
         self.outDataset.SetGeoTransform(self.transform)
         self.outDataset.SetProjection(self.inDataset.GetProjection())
         for b in range(1,4):
-            if self.nodata:
-                self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
+            self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
         # free up memory
         self.outDataset.FlushCache()
         self.outDataset = None

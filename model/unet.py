@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from .tools import AverageMeter
 
-# multi-GPU support  
+# Optimize, multi-GPU support  
 from accelerate import Accelerator
 
 def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader, 

@@ -4,11 +4,11 @@ from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
 ARCHITECTURE = "resnet34"
-MODEL = Path(r".\runs\models\run29\color_run29_resnet34_512_epoch70.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
-IN_FILES = r"V:\project\histo\tests\in\*.png"
-OUT_DIR =  r"V:\project\histo\tests\out"
+MODEL = Path(r"runs\models\run29\color_run29_resnet34_512_epoch52.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
+IN_FILES = r"V:\project\histo\moz\antwerp_luchtfoto1940_1944_4.tif"
+OUT_DIR =  r"V:\project\histo\rgb"
 #Optional, defaults to geotiff: 
-GDAL_DRV = 'PNG'
+GDAL_DRV = 'GTiff'
 #supported output formats  by GDAL driver
 GDAL_FORMATS = {
     "GTiff" :".tif", #Regular Geotiff
