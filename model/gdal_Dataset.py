@@ -7,7 +7,7 @@ import numpy as np
 from skimage.color import rgb2lab
 from skimage.util import random_noise
 from torch.utils.data import IterableDataset
-from torchvision.transforms import v2
+from torchvision.transforms import v2, InterpolationMode
 from torchvision.io import read_image, ImageReadMode
 from .tools import grainify
 
@@ -107,10 +107,9 @@ class gdalTestDataset(IterableDataset):
                 yield {'L': L, 'ab': ab, 'transform': transformMatrix}
 
 
-
 class arrowDataset(IterableDataset):
     def __init__(self, arrow:os.PathLike, imsize:int=256, pathField:str='path', weightField:str='WEIGHT',
-                 rootDir:os.PathLike='', resize:bool=True, grainify:bool=True, count:int=None ):
+                 rootDir:os.PathLike='', grainify:bool=False, count:int=None ):
         super().__init__()
         self.size = imsize
         self.weightField = weightField
@@ -119,18 +118,20 @@ class arrowDataset(IterableDataset):
         self.c = count if count else len(self.ds)
         self.replace =  self.c > len(self.ds)//20
         self.root = Path( rootDir )
-        self.resize = resize
-        self.augment = grainify
+        
+        augFunc = [           
+            v2.ColorJitter(brightness=0.5, contrast=0.5, saturation=None, hue=None) , 
+            v2.RandomResizedCrop(512, scale=(0.25, 1), interpolation= InterpolationMode.BICUBIC, antialias=None)  ]
+        if grainify:
+            augFunc.append(grainify)
+
+        self.aug = v2.Compose(augFunc)
 
     def aug(self, img:np.ndarray):
         "some data augmentation on img "
-        if self.resize:
-            minscale = self.size / img.size(1)
-            img = v2.RandomResizedCrop( self.size, (minscale,1), antialias=True)(img)
-        else:
-            img = v2.CenterCrop(self.size)(img)
+        img = self._aug()
         
-        if self.augment and np.random.uniform() > 0.7:
+        if self.grainify and np.random.uniform() > 0.7:
            img = torch.tensor( grainify(img.numpy()) )
         return img
 

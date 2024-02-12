@@ -14,7 +14,8 @@ class GANLoss(nn.Module):
             self.dtype = torch.float16
         else:
             self.dtype = torch.float32
-        self.device = accelerator.device if accelerator else torch.device('cpu')
+        self.device = accelerator.device if accelerator else torch.device(
+                                            "cuda" if torch.cuda.is_available() else "cpu") 
         self.register_buffer('real_label', torch.tensor(True, dtype=self.dtype ))
         self.register_buffer('fake_label', torch.tensor(False, dtype=self.dtype ))
         if accelerator:
@@ -35,20 +36,21 @@ class MainModel(nn.Module):
         super().__init__()
         
         self.accelerator = accelerator
-        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = accelerator.device if accelerator else torch.device(
+                                            "cuda" if torch.cuda.is_available() else "cpu") 
         self.lambda_L1 = lambda_L1
 
         if net_G is None:
-            self.net_G = self.init_weights(Unet(input_c=1, output_c=2, n_down=8, num_filters=64)) #.to(self.device)
+            self.net_G = self.init_weights(Unet(input_c=1, output_c=2, n_down=8, num_filters=64)).to(self.device)
         else:
-            self.net_G = net_G #.to(self.device)
+            self.net_G = net_G.to(self.device)
 
         if net_D is None:
-            self.net_D = self.init_weights(PatchDiscriminator(input_c=3, n_down=3, num_filters=64)) #.to(self.device)
+            self.net_D = self.init_weights(PatchDiscriminator(input_c=3, n_down=3, num_filters=64)).to(self.device)
         else:
             self.net_D = net_D
         
-        self.GAN_loss = GANLoss(self.accelerator)  #.to(self.device)
+        self.GAN_loss = GANLoss(self.accelerator).to(self.device)
         self.L1_loss =  nn.L1Loss()
         self.opt_G = optim.Adam(self.net_G.parameters(), lr=lr_G, betas=(beta1, beta2))
         self.opt_D = optim.Adam(self.net_D.parameters(), lr=lr_D, betas=(beta1, beta2))
@@ -82,8 +84,8 @@ class MainModel(nn.Module):
             p.requires_grad = requires_grad
         
     def setup_input(self, data:dict):
-        self.L =  data['L']  #.to(self.device)
-        self.ab = data['ab'] #.to(self.device) if 'ab' in data else None
+        self.L =  data['L'].to(self.device)
+        self.ab = data['ab'].to(self.device) if 'ab' in data else None
         
     def forward(self):
         self.fake_color = self.net_G(self.L)

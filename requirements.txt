@@ -1,7 +1,9 @@
---find-links https://download.pytorch.org/whl/torch_stable.html
-torch 
+--extra-index-url  https://download.pytorch.org/whl/cu118/index.html
+torch
 torchvision
 scikit-image
+timm
+fastai
 numpy
 matplotlib
 tqdm

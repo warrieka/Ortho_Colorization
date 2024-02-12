@@ -75,6 +75,7 @@ def visualize(model, data, epoch, save_dir=''):
 
     if Path(save_dir).exists():
         fig.savefig( Path(save_dir) / f"colorization_epoch_{epoch+1}.png")
+        plt.close()
     else:
         plt.show()
         
@@ -86,7 +87,9 @@ def log_results(loss_meter_dict:dict, logFile:os.PathLike):
         log.write( ";".join( str(i.avg) for i in loss_meter_dict.values()) + "\n")
 
 
-def grainify(img:np.ndarray):
+def grainify(img:torch.Tensor):
+    img = img.cpu().numpy()/255
+
     c, rows, cols = img.shape
     val = np.random.uniform(0.036, 0.107)**2 
 
@@ -102,5 +105,5 @@ def grainify(img:np.ndarray):
     noise = noise_1 + noise_2 
     noise = np.stack( [noise]*c, axis=0)
     
-    noisy_img = img/255 + noise # Add noise_im to the input image.
-    return np.round((255 * noisy_img)).clip(0, 255).astype(np.uint8)
+    noisy_img = img + noise # Add noise_im to the input image.
+    return torch.tensor( (255 * noisy_img).clip(0, 255), dtype=torch.uint8 )

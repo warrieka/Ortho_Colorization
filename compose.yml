@@ -1,0 +1,6 @@
+services:
+  colorize:
+    build: .
+    volumes:
+      - /colorisation/data:/data
+      - /colorisation/runs:/runs

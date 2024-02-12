@@ -14,7 +14,7 @@ from accelerate import Accelerator
 def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader, 
                epochs:int=20, lrate:float=1e-4, 
                stateDict:os.PathLike='runs\\pretrain', 
-               resumeWeigths:os.PathLike='runs\\pretrain' ) -> DynamicUnet:
+               resumeWeigths:os.PathLike=None ) -> DynamicUnet:
     
     stateDict  = Path(stateDict)
     accelerator = Accelerator(mixed_precision='bf16', project_dir=stateDict.parent)

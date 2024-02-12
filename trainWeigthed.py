@@ -12,47 +12,47 @@ from accelerate import Accelerator
 # HYPERPARAMETERS
 IMAGE_SIZE = 512
 ARCHITECTURE = 'resnet34'
-EPOCHS =     70
-START_EPOCH = 50
+EPOCHS = 60
+START_EPOCH = 30
 TRAIN_DS_SIZE = 20000
 
-LR_GENERATOR =     2e-5
-LR_DISCRIMINATOR = 2e-5
-FEATHER_DS =      Path('.\\data\\tiles_2015_Weighted.arrow')
+LR_GENERATOR =    1e-5
+LR_DISCRIMINATOR =1e-5
+FEATHER_DS =      Path('.\\data\\tiles_merged.arrow')
 DS_PATH_FIELD =   'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
-PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet34_256_run7.pth")
-OUT_STATE_DICT =  Path(f'.\\runs\\models\\run29\\color_run29_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
-RESUME =  Path(f'.\\runs\\models\\run29\\color_run29_resnet34_512_epoch50.pth')
+PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet34_512_run8.pth")
+OUT_STATE_DICT =  Path(f'.\\runs\\models\\run30\\color_run30_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
+RESUME =  Path(f'.\\runs\\models\\run30\\color_run30_resnet34_512_epoch30.pth')
 
-def train_model(train_dl, test_dl, opts):
-    proj_dir = opts.output_weights.parent.resolve()
-    pretrained = opts.pretrained_weights.resolve() if opts.pretrained_weights else None
+def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
+    proj_dir = opts["output_weights"].parent.resolve()
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    pretrained = opts["pretrained_weights"].resolve() 
 
     accelerator = Accelerator(mixed_precision='bf16', project_dir=proj_dir)
     train_dl, test_dl = accelerator.prepare(train_dl, test_dl)
 
-    if pretrained and pretrained.exists():
-        net_G = ResUnet(n_input=1, n_output=2, timm_model_name=opts.architecture )
-        net_G.load_state_dict(torch.load(pretrained))
-    else:
-        raise "no pretrained dict"
+    
+    assert pretrained is not None and pretrained.exists()
+    net_G = ResUnet(n_input=1, n_output=2, timm_model_name=opts['architecture'] )
+    net_G.load_state_dict(torch.load(pretrained))
 
-    model = MainModel(lr_G=opts.lr_net_G, lr_D=opts.lr_net_D, 
+    model = MainModel(lr_G=opts["lr_net_G"], lr_D=opts["lr_net_D"], 
                       net_G=net_G, accelerator=accelerator)
-    if opts.resume_from:
-        model.load_state_dict( torch.load( opts.resume_from ) )
+    if opts["resume_from"] is not None:
+        model.load_state_dict( torch.load( opts["resume_from"] ) )
 
     # getting a batch of test data for visualizing the model output after an epoch
     test_data = iter(test_dl) 
     print(f"Training started at {datetime.datetime.now()}")
 
-    logfile = proj_dir / f"{opts.output_weights.stem}.csv"
-    if opts.resume_epoch == 0:
+    logfile = proj_dir / f"{opts['output_weights'].stem}.csv"
+    if opts["resume_epoch"] == 0:
         with open(logfile , 'w' ) as log:
             log.write( ";".join(create_loss_meters()) +"\n")
         
-    for e in range(opts.resume_epoch, opts.epochs):
+    for e in range(opts["resume_epoch"], opts["epochs"]):
         # function returing a dictionary of objects to log the losses of the complete network
         loss_meter_dict = create_loss_meters()
         for train_data in tqdm(train_dl):
@@ -61,7 +61,7 @@ def train_model(train_dl, test_dl, opts):
             # function updating the log objects
             update_losses(model, loss_meter_dict, count=train_data['L'].size(0)) 
 
-        print(f"\nEpoch {e+1}/{opts.epochs} [{datetime.datetime.now()}]")
+        print(f"\nEpoch {e+1}/{opts['epochs']} [{datetime.datetime.now()}]")
         # function to print out the losses
         log_results(loss_meter_dict, logFile= logfile )
         # function displaying the model's outputs
@@ -69,20 +69,22 @@ def train_model(train_dl, test_dl, opts):
         # save intemediatie results 
         accelerator.wait_for_everyone()
         # accelerator.save_state(OUT_STATE_DICT.parent)
-        torch.save(model.state_dict(), proj_dir / f"{opts.output_weights.stem}_epoch{e+1}.pth" )
+        torch.save(model.state_dict(), proj_dir / f"{opts['output_weights'].stem}_epoch{e+1}.pth" )
+
+        if (e+1) % 10 == 0:
+            torch.save(model.net_G.state_dict(), proj_dir.parent / f"{opts['output_weights'].stem}_net_G{e+1}.pth" ) 
 
     print(f"Training ended at {datetime.datetime.now()}")
-    torch.save(model.net_G.state_dict(), proj_dir / f"{opts.output_weights.stem}_net_G.pth" ) 
 
-def main(opts): 
-    test_ds_size  = opts.epochs *6
+def main(opts:dict): 
+    test_ds_size  = opts["epochs"] *6
 
-    train_ds = arrowDataset(arrow=opts.dataset.resolve(), imsize=opts.imsize, 
-                            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field,
-                            count=opts.train_size)
+    train_ds = arrowDataset(arrow=opts["dataset"].resolve(), imsize=opts['imsize'], 
+                            pathField=opts["dataset_path_field"], weightField=opts["dataset_weight_field"],
+                            count=opts["train_size"])
 
-    test_ds = arrowDataset( arrow=opts.dataset.resolve(), imsize=opts.imsize, 
-                            pathField=opts.dataset_path_field, weightField=opts.dataset_weight_field,
+    test_ds = arrowDataset( arrow=opts["dataset"].resolve(), imsize=opts['imsize'], 
+                            pathField=opts['dataset_path_field'], weightField=opts['dataset_weight_field'],
                             count=test_ds_size)
 
     train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=8)
@@ -120,5 +122,5 @@ if __name__ == "__main__":
     parser.add_argument('--architecture', default=ARCHITECTURE,  
                     help='The architecture of the UNET, for example "resnet18" ')
 
-    opts = parser.parse_args()
+    opts = vars( parser.parse_args() )
     main(opts)

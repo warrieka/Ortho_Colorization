@@ -4,12 +4,13 @@ from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
 ARCHITECTURE = "resnet34"
-MODEL = Path(r"runs\models\run29\color_run29_resnet34_512_epoch52.pth").resolve() #Path(r".\runs\models\color_run26_512.pth").resolve()
-IN_FILES = r"V:\project\histo\moz\antwerp_luchtfoto1940_1944_4.tif"
-OUT_DIR =  r"V:\project\histo\rgb"
+MODEL = Path(r"runs\models\color_run30_resnet34_512_net_G60.pth").resolve() 
+IN_FILES = r"Z:\moz\1970SR\*.tif"
+OUT_DIR =  r"W:\1970SR_rbg"
+NODATA = 255
 #Optional, defaults to geotiff: 
 GDAL_DRV = 'GTiff'
-#supported output formats  by GDAL driver
+# some supported output formats  by GDAL driver
 GDAL_FORMATS = {
     "GTiff" :".tif", #Regular Geotiff
     "PNG":".png",   #Portable Network Graphics, georefencing stored in worldfile
@@ -45,6 +46,9 @@ if __name__ == '__main__':
         help='the size of batch the algoritem sends to the GPU in 1 batch, \n'+
         'If you get CUDA of of memory issues, try to decreaser the batch')
 
+    parser.add_argument('--nodata', default=NODATA, type=int, 
+        help='set the nodata value this will overwrite the nodata specified in the metadata')
+
     opts = parser.parse_args()
 
     infiles = opts.input.resolve()
@@ -53,5 +57,7 @@ if __name__ == '__main__':
 
     for gdFile in infiles.parent.glob( infiles.name ):
         outFile = out_dir / f'{gdFile.stem}{GDAL_FORMATS[drv]}'
-        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size, ARCHITECTURE)
+        if outFile.exists():
+            continue
+        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size, ARCHITECTURE, NODATA)
         gfc.saveOutDataSet(outFile, drv)

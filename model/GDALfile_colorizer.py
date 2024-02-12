@@ -1,66 +1,68 @@
-from osgeo import gdal #> https://pcjericks.github.io/py-gdalogr-cookbook/
-import warnings
+from osgeo import gdal, gdal_array
 from pathlib import Path
-import numpy as np, os, torch
-from .mainModel import MainModel
 from .tools import lab_to_rgb
+from .unet import ResUnet
 from typing import Iterable
-from model.unet import ResUnet
-from accelerate import Accelerator
-from skimage import io
+import numpy as np, os, torch, warnings
+
+try: # use accelerate allow multi-gpu inference
+    from accelerate import Accelerator
+    accelerator = Accelerator(mixed_precision='bf16')
+except ImportError:
+    accelerator = None
+
 
 gdal.UseExceptions() 
 warnings.simplefilter("ignore", category=RuntimeWarning)
 warnings.simplefilter('ignore', category=UserWarning)
 
 class GDALtile():
-    def __init__(self, in_array:np.ndarray,posx:int, poxy:int, padx:int, pady:int, mask:np.ndarray=None ):
-        self._Array = in_array
+    def __init__(self, in_array:np.ndarray,posx:int, poxy:int, 
+                 padx:int=0, pady:int=0, mask:np.ndarray=None ):
+        self.Array = in_array
         self.mask = mask
         self.posx = posx
         self.posy = poxy
         self.padx = padx
         self.pady = pady
 
-    def setArray(self, resultArray):
-        self._Array = resultArray
+    def setArray(self, array:np.array):
+        self.Array = array
 
     def getArray(self, nodata:int=None) -> np.array:
-        array = self._Array 
         if nodata is not None and self.mask is not None:
-            array[self.mask] = nodata
-        return array
+            self.Array[self.Array == nodata ] = 1 if nodata == 0 else nodata-1
+            self.Array[self.mask] = nodata
+        return self.Array 
     
 
 class GDALfile_colorizer():
-    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, batch_size:int=32, unet_arch:str='resnet18'):
+    def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, 
+                       batch_size:int=16, unet_arch:str="resnet34", alt_nodata:int=None):
         print('Reading: ' ,in_GDALfile)
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
-        self.accelerator = Accelerator(mixed_precision='fp16')
-        self.device = self.accelerator.device #torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.unet = ResUnet(timm_model_name=unet_arch)
-        self.model = self._load_model(weigths)
+        self.device = accelerator.device if accelerator else torch.device(
+                                                    "cuda" if torch.cuda.is_available() else "cpu")
+        self.model = ResUnet(timm_model_name=unet_arch)
+        if accelerator is not None:
+            self.device = accelerator.device
+            self.model = accelerator.prepare(self.model)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model.to(self.device)
+        self.model.load_state_dict( torch.load(weigths, map_location=self.device ) )
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
-        self.nodata = self.inDataset.GetRasterBand(1).GetNoDataValue()
+        self.nodata = alt_nodata if alt_nodata is not None else self.inDataset.GetRasterBand(1).GetNoDataValue()
         self.tileSize = tileSize
         self.batchsize = batch_size
-        
-    def _load_model(self, weigths):
-        _model = MainModel(accelerator=self.accelerator, net_G=   self.unet)
-        _model.eval()
-        with torch.inference_mode():
-            _model.load_state_dict(
-                torch.load(weigths, map_location=self.device) )
-        return _model
 
     def _inferTiles(self, tiles:Iterable[GDALtile]):
         n_tiles  = np.array([ np.expand_dims( tile.getArray() /128 -1 , axis=0 ) for tile in tiles ]) 
-        T_tiles = torch.tensor(n_tiles, dtype=torch.float16)
+        T_tiles = torch.tensor(n_tiles, dtype=torch.float32 if accelerator is None else torch.bfloat16)
         with torch.inference_mode():
-            preds = self.model.net_G( T_tiles.to(self.device) )
-
+            preds = self.model( T_tiles.to(self.device) )
         C_tiles = lab_to_rgb(T_tiles, preds.cpu())
         for i in range(len(tiles)):
             tiles[i].setArray( (C_tiles[i] * 255).astype(np.uint8) )
@@ -122,24 +124,18 @@ class GDALfile_colorizer():
         if len(tiles) > 0: #return remaining tiles
             yield tiles    
 
-
     def saveOutDataSet(self, out_GDALfile:os.PathLike, outDriver:str='GTiff', 
                        creation_options:Iterable[str]=None):
         print('Started colorisation')
         img_rgb = self._process_tiles() 
-        print("\nColorisation Done, Writing to output: ", out_GDALfile)
-
-        if outDriver in ('PNG', 'JPEG', 'JPEG2000') or outDriver is None:
-            fname = Path(out_GDALfile)
-            wld_ext = fname.suffix[:-2] + fname.suffix[-1] + 'w'
-            io.imsave( fname=fname, arr= img_rgb.transpose((1, 2, 0)) )
-            with open( fname.parent / f"{fname.stem}{wld_ext}" ,'w') as wld:
-                wld.write("\n".join([str(self.transform[i]) for i in (1,2,4,5,0,3)]))
-            return 
-
+        print("\nColorisation Done")
         drv = gdal.GetDriverByName(outDriver)
+        
+        ## options for common image formats
+        if creation_options is None and outDriver in ('PNG', 'JPEG', 'WEBP', 'GIF', 'JPEG2000'):
+            creation_options =["WORLDFILE=YES"]
         ## Options for a Geotiff (.tif) 
-        if creation_options is None and outDriver == 'GTiff':
+        elif creation_options is None and outDriver == 'GTiff':
             creation_options = [ 'BIGTIFF=YES', 'INTERLEAVE=BAND', 'COMPRESS=DEFLATE',
                     'PREDICTOR=2', 'ZLEVEL=9','Tiled=YES', 
                     f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
@@ -149,20 +145,19 @@ class GDALfile_colorizer():
             creation_options = [f'RASTER_TABLE={Path(out_GDALfile).stem}', 
                     'RESAMPLING=LANCZOS', 'TILE_FORMAT=PNG_JPEG', 
                     f'BLOCKSIZE={self.tileSize}', 'TILING_SCHEME=GoogleMapsCompatible' ]
-        ## Options for a Cloud Optimized GeoTIFF Generator (.tif)
+        ## Options for a Cloud Optimized tiff Generator (.tif)
         elif creation_options is None and outDriver == 'COG':
             creation_options = ['TILING_SCHEME=GoogleMapsCompatible', 'COMPRESS=JPEG',
                     'BIGTIFF=YES', f'BLOCKSIZE={self.tileSize}', 'WARP_RESAMPLING=LANCZOS',
                     'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS', 'STATISTICS=YES' ]
 
-        self.outDataset = drv.Create(str(out_GDALfile), bands=3, xsize=self.xsize, ysize=self.ysize,
-                                                eType=gdal.GDT_Byte, options=creation_options) 
-        self.outDataset.WriteArray(img_rgb)
-        self.outDataset.SetGeoTransform(self.transform)
-        self.outDataset.SetProjection(self.inDataset.GetProjection())
+        self.outDataset = gdal_array.OpenArray(img_rgb, prototype_ds=self.inDataset, interleave='band')
         for b in range(1,4):
             self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
-        # free up memory
+
+        drv.CreateCopy( f"{out_GDALfile}", self.outDataset, options=creation_options )
+        print( "Finished Writing to output: ", out_GDALfile)
+        # free up memory and drivespace
         self.outDataset.FlushCache()
         self.outDataset = None
         self.inDataset = None
