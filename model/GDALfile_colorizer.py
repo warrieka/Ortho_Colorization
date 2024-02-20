@@ -137,7 +137,7 @@ class GDALfile_colorizer():
         ## Options for a Geotiff (.tif) 
         elif creation_options is None and outDriver == 'GTiff':
             creation_options = [ 'BIGTIFF=YES', 'INTERLEAVE=BAND', 'COMPRESS=DEFLATE',
-                    'PREDICTOR=2', 'ZLEVEL=9','Tiled=YES', 
+                    'PREDICTOR=2', 'ZLEVEL=9','TILED=YES', 
                     f'BLOCKXSIZE={self.tileSize}', f'BLOCKYSIZE={self.tileSize}', 
                     'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS'  ]
         ## Options for a GeoPackage (.gpkg) 

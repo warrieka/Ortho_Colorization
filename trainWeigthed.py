@@ -11,19 +11,19 @@ from accelerate import Accelerator
 
 # HYPERPARAMETERS
 IMAGE_SIZE = 512
-ARCHITECTURE = 'resnet34'
-EPOCHS = 60
-START_EPOCH = 30
-TRAIN_DS_SIZE = 20000
+ARCHITECTURE = 'resnet50'
+EPOCHS = 30
+START_EPOCH = 12
+TRAIN_DS_SIZE = 5000
 
 LR_GENERATOR =    1e-5
 LR_DISCRIMINATOR =1e-5
 FEATHER_DS =      Path('.\\data\\tiles_merged.arrow')
 DS_PATH_FIELD =   'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
-PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet34_512_run8.pth")
-OUT_STATE_DICT =  Path(f'.\\runs\\models\\run30\\color_run30_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
-RESUME =  Path(f'.\\runs\\models\\run30\\color_run30_resnet34_512_epoch30.pth')
+PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet50_512.pth")
+OUT_STATE_DICT =  Path(f'.\\runs\\models\\run31\\color_run31_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
+RESUME = Path(f'.\\runs\\models\\run31\\color_run31_resnet50_512_epoch12.pth')
 
 def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
     proj_dir = opts["output_weights"].parent.resolve()
@@ -32,7 +32,6 @@ def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
 
     accelerator = Accelerator(mixed_precision='bf16', project_dir=proj_dir)
     train_dl, test_dl = accelerator.prepare(train_dl, test_dl)
-
     
     assert pretrained is not None and pretrained.exists()
     net_G = ResUnet(n_input=1, n_output=2, timm_model_name=opts['architecture'] )
@@ -69,10 +68,11 @@ def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
         # save intemediatie results 
         accelerator.wait_for_everyone()
         # accelerator.save_state(OUT_STATE_DICT.parent)
+
+        # if (e+1) % 10 == 0:
         torch.save(model.state_dict(), proj_dir / f"{opts['output_weights'].stem}_epoch{e+1}.pth" )
 
-        if (e+1) % 10 == 0:
-            torch.save(model.net_G.state_dict(), proj_dir.parent / f"{opts['output_weights'].stem}_net_G{e+1}.pth" ) 
+        torch.save(model.net_G.state_dict(), proj_dir.parent / f"{opts['output_weights'].stem}_net_G{e+1}.pth" ) 
 
     print(f"Training ended at {datetime.datetime.now()}")
 
@@ -87,8 +87,8 @@ def main(opts:dict):
                             pathField=opts['dataset_path_field'], weightField=opts['dataset_weight_field'],
                             count=test_ds_size)
 
-    train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=8)
-    test_dl = DataLoader( test_ds, num_workers=2, pin_memory=True, batch_size=4)
+    train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=4)
+    test_dl = DataLoader( test_ds, num_workers=2, batch_size=4)
 
     train_model(train_dl, test_dl, opts)
 

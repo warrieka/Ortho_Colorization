@@ -6,26 +6,28 @@ from model.gdal_Dataset import arrowDataset
 
 # HYPERPARAMETERS
 IMAGE_SIZE = 512
-MODEL_ARCHITECTURE = 'resnet34'
+MODEL_ARCHITECTURE = 'resnet50'
 EPOCHS =     20
 LR= 5e-4
-PRETRAIN_DS_SIZE = 20000
+PRETRAIN_DS_SIZE = 2000
 FEATHER_DS = Path('.\\data\\tiles_merged.arrow').resolve()
 DS_PATH_FIELD = 'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
 PRETRAINED_DICT = Path(f".\\runs\\pretrain\\{MODEL_ARCHITECTURE}_{IMAGE_SIZE}.pth").resolve()
+RESUME = False
 
 def main(opts:dict): 
     
     pretrain_ds = arrowDataset(arrow=opts['dataset'], imsize=opts['imsize'], 
                             pathField=opts["dataset_path_field"], weightField=opts['dataset_weight_field'],
                             count=opts["train_size"])
-    pretrain_dl = DataLoader(pretrain_ds, pin_memory=True, num_workers=6, batch_size=8 )
+    pretrain_dl = DataLoader(pretrain_ds, pin_memory=True, num_workers=6, batch_size=2 )
 
     net_G = ResUnet(n_input=1, n_output=2, size=opts['imsize'], timm_model_name=opts["architecture"])
 
     pretrain_generator(net_G=net_G, pretrain_dl=pretrain_dl, epochs=opts['epochs'], 
-                       lrate=opts['lr'], stateDict=opts['output_pretrained_weights'])
+                       lrate=opts['lr'], stateDict=opts['output_pretrained_weights'],
+                       resumeWeigths= opts['output_pretrained_weights'].parent if RESUME else None )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser( description=

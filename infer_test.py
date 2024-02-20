@@ -3,11 +3,11 @@ import argparse
 from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
-ARCHITECTURE = "resnet34"
-MODEL = Path(r"runs\models\color_run30_resnet34_512_net_G60.pth").resolve() 
-IN_FILES = r"Z:\moz\1970SR\*.tif"
-OUT_DIR =  r"W:\1970SR_rbg"
-NODATA = 255
+ARCHITECTURE = "resnet50"
+MODEL = Path("runs\\models\\color_run31_resnet50_512_net_G12.pth").resolve() 
+IN_FILES = r"V:\project\histo\moz\antwerp_luchtfoto1940_1944_4.tif"
+OUT_DIR =  r"V:\project\histo\rgb"
+NODATA = None
 #Optional, defaults to geotiff: 
 GDAL_DRV = 'GTiff'
 # some supported output formats  by GDAL driver
@@ -26,7 +26,6 @@ GDAL_FORMATS = {
     "R" :".rda" ,  #R Object Data Store, see https://www.r-project.org/
     "NUMPY": '.npy' } #numpy's binary matrix format https://numpy.org/doc/stable/reference/routines.io.html
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser( description=
       'Deeplearing model to colorize black&white orthophoto\'s.\n'+
@@ -42,7 +41,7 @@ if __name__ == '__main__':
         help='The output gdal driver to use to write output,\n'+
         'only drivers that support "create" can be used (see https://gdal.org/drivers/raster/)')
     
-    parser.add_argument('--batch_size', default=16, type=int, 
+    parser.add_argument('--batch_size', default=8, type=int, 
         help='the size of batch the algoritem sends to the GPU in 1 batch, \n'+
         'If you get CUDA of of memory issues, try to decreaser the batch')
 
@@ -59,5 +58,5 @@ if __name__ == '__main__':
         outFile = out_dir / f'{gdFile.stem}{GDAL_FORMATS[drv]}'
         if outFile.exists():
             continue
-        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size, ARCHITECTURE, NODATA)
+        gfc = GDALfile_colorizer(gdFile, MODEL, IMAGE_SIZE, opts.batch_size, ARCHITECTURE, opts.nodata)
         gfc.saveOutDataSet(outFile, drv)

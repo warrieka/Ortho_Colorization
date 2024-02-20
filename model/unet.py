@@ -20,19 +20,16 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
     accelerator = Accelerator(mixed_precision='bf16', project_dir=stateDict.parent)
     opt = optim.Adam(net_G.parameters(), lr=lrate)
     l1Loss = nn.L1Loss() 
-    
-    resumeWeigths = Path(resumeWeigths) if resumeWeigths is not None else None
-    if resumeWeigths is not None and resumeWeigths.is_file():
-        print(f"resuming from {resumeWeigths}")
-        net_G.load_state_dict( torch.load(resumeWeigths) )
 
     pretrain_dl, net_G, opt = accelerator.prepare(
          pretrain_dl, net_G, opt
     )
-    
-    if resumeWeigths is not None and resumeWeigths.is_dir():
+    if resumeWeigths is not None and resumeWeigths.exists():
         print(f"resuming from {resumeWeigths}")
         accelerator.load_state(resumeWeigths)
+
+    with  open(stateDict.parent / f"{stateDict.stem}_log.txt", 'w' ) as log:
+        log.write('epochs;loss\n')
 
     for e in range(epochs):
         loss_meter = AverageMeter()
@@ -49,6 +46,9 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
         print(f"Epoch {e+1}/{epochs}")
         print(f"L1 Loss: {loss_meter.avg:.8f} after {loss_meter.count:.0f} items")
     
+        with open(stateDict.parent / f"{stateDict.stem}.txt", 'a' ) as log:
+            log.write(f"{e+1};{loss_meter.avg:.8f}\n")
+
         accelerator.wait_for_everyone()
         accelerator.save_state(stateDict.parent)
 
