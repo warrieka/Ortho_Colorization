@@ -4,11 +4,12 @@ from model.GDALfile_colorizer import GDALfile_colorizer
 
 IMAGE_SIZE = 512
 ARCHITECTURE = "resnet50"
-MODEL = Path("runs\\models\\color_run31_resnet50_512_net_G12.pth").resolve() 
-IN_FILES = r"V:\project\histo\moz\antwerp_luchtfoto1940_1944_4.tif"
-OUT_DIR =  r"V:\project\histo\rgb"
-NODATA = None
+MODEL = Path("runs\\models\\run31\\color_run31_resnet50_512_net_G24.pth").resolve() 
+IN_FILES = r"W:\1970_grey\OKZPAN71VL_K*.jp2"
+OUT_DIR =  r"W:\1970_rbg"
+NODATA = 255
 #Optional, defaults to geotiff: 
+
 GDAL_DRV = 'GTiff'
 # some supported output formats  by GDAL driver
 GDAL_FORMATS = {

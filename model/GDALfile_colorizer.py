@@ -17,7 +17,7 @@ warnings.simplefilter("ignore", category=RuntimeWarning)
 warnings.simplefilter('ignore', category=UserWarning)
 
 class GDALtile():
-    def __init__(self, in_array:np.ndarray,posx:int, poxy:int, 
+    def __init__(self, in_array:np.ndarray, posx:int, poxy:int, 
                  padx:int=0, pady:int=0, mask:np.ndarray=None ):
         self.Array = in_array
         self.mask = mask
@@ -54,7 +54,8 @@ class GDALfile_colorizer():
         self.model.load_state_dict( torch.load(weigths, map_location=self.device ) )
         self.xsize = self.inDataset.RasterXSize
         self.ysize = self.inDataset.RasterYSize
-        self.nodata = alt_nodata if alt_nodata is not None else self.inDataset.GetRasterBand(1).GetNoDataValue()
+        _nodata = alt_nodata if alt_nodata is not None else self.inDataset.GetRasterBand(1).GetNoDataValue() 
+        self.nodata = int( np.clip( _nodata , 0, 255)) if _nodata is not None else None
         self.tileSize = tileSize
         self.batchsize = batch_size
 
@@ -152,8 +153,9 @@ class GDALfile_colorizer():
                     'SPARSE_OK=True', 'NUM_THREADS=ALL_CPUS', 'STATISTICS=YES' ]
 
         self.outDataset = gdal_array.OpenArray(img_rgb, prototype_ds=self.inDataset, interleave='band')
-        for b in range(1,4):
-            self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
+        if self.nodata:
+            for b in range(1,4):
+                self.outDataset.GetRasterBand(b).SetNoDataValue(self.nodata)
 
         drv.CreateCopy( f"{out_GDALfile}", self.outDataset, options=creation_options )
         print( "Finished Writing to output: ", out_GDALfile)

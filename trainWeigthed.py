@@ -13,7 +13,8 @@ from accelerate import Accelerator
 IMAGE_SIZE = 512
 ARCHITECTURE = 'resnet50'
 EPOCHS = 30
-START_EPOCH = 12
+
+START_EPOCH = 28
 TRAIN_DS_SIZE = 5000
 
 LR_GENERATOR =    1e-5
@@ -23,7 +24,7 @@ DS_PATH_FIELD =   'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
 PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet50_512.pth")
 OUT_STATE_DICT =  Path(f'.\\runs\\models\\run31\\color_run31_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
-RESUME = Path(f'.\\runs\\models\\run31\\color_run31_resnet50_512_epoch12.pth')
+RESUME = Path(f'.\\runs\\models\\run31\\color_run31_resnet50_512_epoch28.pth')
 
 def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
     proj_dir = opts["output_weights"].parent.resolve()
