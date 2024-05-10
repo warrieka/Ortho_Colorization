@@ -65,8 +65,8 @@ class gdalTestDataset(IterableDataset):
     def __init__(self, path, imsize=256):
         super(gdalTrainDataset).__init__()
         self.size = imsize
-        self.path = path
-        self.itr = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=False)]) #Convert to ImageTensor
+        self.path = path 
+        self.itr = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=False)]) #Convert to ImageTensor torch.bfloat16
     
     def __iter__(self):
         return self.rasterGenerator(self.path, self.size)
@@ -120,20 +120,13 @@ class arrowDataset(IterableDataset):
         self.root = Path( rootDir )
         
         augFunc = [           
-            v2.ColorJitter(brightness=0.5, contrast=0.5, saturation=None, hue=None) , 
+            v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0, hue=0) , 
+            v2.GaussianBlur(kernel_size=(5, 5), sigma=(0.1, 5.)), 
             v2.RandomResizedCrop(512, scale=(0.25, 1), interpolation= InterpolationMode.BICUBIC, antialias=None)  ]
         if grainify:
             augFunc.append(grainify)
 
         self.aug = v2.Compose(augFunc)
-
-    def aug(self, img:np.ndarray):
-        "some data augmentation on img "
-        img = self._aug()
-        
-        if self.grainify and np.random.uniform() > 0.7:
-           img = torch.tensor( grainify(img.numpy()) )
-        return img
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -143,7 +136,7 @@ class arrowDataset(IterableDataset):
             img = read_image( str( self.root / path ) , ImageReadMode.RGB ) 
             img = self.aug(img)                              
             img_lab = rgb2lab( img.numpy() , channel_axis=0 ) # Converting RGB to L*a*b
-            img_lab = torch.tensor(img_lab, dtype=torch.bfloat16)
+            img_lab = torch.tensor(img_lab, dtype=torch.float32)
             L =  (img_lab[0] / 50. - 1).unsqueeze(0) # Between -1 and 1
             ab = img_lab[1:3] / 110  # Between -1 and 1
             yield {'L': L, 'ab': ab}

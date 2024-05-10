@@ -1,9 +1,10 @@
 import torch, os
-from skimage.color import lab2rgb
+from skimage.color import lab2rgb, gray2rgb
 from skimage.util import random_noise
 from skimage.transform import resize
+from skimage.io import imsave
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from pathlib import Path
 
 class AverageMeter:
@@ -57,27 +58,13 @@ def visualize(model, data, epoch, save_dir=''):
     L = model.L
     fake_imgs = lab_to_rgb(L, fake_color)
     real_imgs = lab_to_rgb(L, real_color)
-    fig = plt.figure(figsize=(12, 8))
-    fig.suptitle(f'Colorisation at Epoch {epoch+1}')
-    for i in range(4):
-        ax = plt.subplot(3, 4, i + 1)
-        ax.imshow(L[i][0].to(torch.float32).cpu(), cmap='gray')
-        ax.set_title("INPUT GRAY")
-        ax.axis("off")
-        ax = plt.subplot(3, 4, i + 5)
-        ax.imshow(fake_imgs[i])
-        ax.set_title("FAKE")
-        ax.axis("off")
-        ax = plt.subplot(3, 4, i + 9)
-        ax.imshow(real_imgs[i])
-        ax.set_title("REAL")
-        ax.axis("off")
 
-    if Path(save_dir).exists():
-        fig.savefig( Path(save_dir) / f"colorization_epoch_{epoch+1}.png")
-        plt.close()
-    else:
-        plt.show()
+    for i, fake in enumerate(fake_imgs):
+        fake = fake* 255
+        real = real_imgs[i]* 255
+        gray = gray2rgb( L[i][0].to(torch.float32).cpu().numpy() -1) *127
+        img_concat = np.hstack( (real.astype('uint8'), gray.astype('uint8'), fake.astype('uint8')) )
+        imsave(Path(save_dir) / f"test_imgs/colorization_epoch{epoch+1}_sample{i}.png", img_concat)
         
 def log_results(loss_meter_dict:dict, logFile:os.PathLike):
     for loss_name, loss_meter in loss_meter_dict.items():

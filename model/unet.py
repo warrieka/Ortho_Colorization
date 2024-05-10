@@ -14,16 +14,18 @@ from accelerate import Accelerator
 def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader, 
                epochs:int=20, lrate:float=1e-4, 
                stateDict:os.PathLike='runs\\pretrain', 
-               resumeWeigths:os.PathLike=None ) -> DynamicUnet:
+               resumeWeigths:os.PathLike=None, accelerate:bool=True ) -> DynamicUnet:
     
     stateDict  = Path(stateDict)
-    accelerator = Accelerator(mixed_precision='bf16', project_dir=stateDict.parent)
     opt = optim.Adam(net_G.parameters(), lr=lrate)
     l1Loss = nn.L1Loss() 
 
-    pretrain_dl, net_G, opt = accelerator.prepare(
-         pretrain_dl, net_G, opt
-    )
+    if accelerate: 
+        accelerator = Accelerator(mixed_precision='bf16', project_dir=stateDict.parent)
+        pretrain_dl, net_G, opt = accelerator.prepare(
+            pretrain_dl, net_G, opt
+        )
+
     if resumeWeigths is not None and resumeWeigths.exists():
         print(f"resuming from {resumeWeigths}")
         accelerator.load_state(resumeWeigths)
@@ -38,7 +40,8 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
             ab = pretrain_data['ab'] 
             preds = net_G(L)
             loss = l1Loss(preds, ab)
-            accelerator.backward(loss)
+            if accelerate: accelerator.backward(loss)
+            else: loss.backward()
             opt.step()
             opt.zero_grad()
             loss_meter.update(loss.item(), L.size(0))
@@ -49,8 +52,8 @@ def pretrain_generator(net_G:DynamicUnet, pretrain_dl:DataLoader,
         with open(stateDict.parent / f"{stateDict.stem}.txt", 'a' ) as log:
             log.write(f"{e+1};{loss_meter.avg:.8f}\n")
 
-        accelerator.wait_for_everyone()
-        accelerator.save_state(stateDict.parent)
+        # accelerator.wait_for_everyone()
+        # accelerator.save_state(stateDict.parent)
 
     torch.save(net_G.state_dict(), stateDict )
     return net_G

@@ -1,28 +1,24 @@
-Orthophoto Colorisation with deeplearning
-===========================
+Historical Panchromatic Orthophoto Colorisation with a Generative Adversarial Neural net
+=================================================================
+By Kay Warrie
 
-Deeplearing model to colorize historical black&white orthophotos(1).
+This is deeplearing model to colorize historical greyscale or panchromatic orthophotos and orthophoto mosaics. 
+Greyscale images that made using all the wavelengths of the visible spectrum are called **panchromatic**, most historical images are panchrommatic. 
+An **Orthophoto** is an aerial photograph geometrically corrected ("orthorectified") such that the scale is uniform. It is the basis for most mapping solutions.
+An **Orthophoto mosaic** is a type of large scale image that is created by stitching together a collection orthophoto to produce a seamless, georeferenced image, for example "Satelite"-view in google maps, that is by thet way, mostly made with aerial photo's and not with satelite images. 
+A **Generative Adversarial Network (GAN)** is a type of artificial intelligence, a generative model consisting of two neural networks, the generator and the discriminator. 
+The generator is convolutional neural net that makes an image and the discriminator is en model the tries to distinguish between the label data and the generated images. 
+The Loss of GAN's discriminator calculated by passing the batch of the generators output and a batch of real data and seeing if it can distinguish between the two. The loss of generator is output of the discriminator.
 
-(1): *An orthophotos is an aerial photograph geometrically corrected ("orthorectified") such that the scale is uniform. It is the basis for most mapping solutions.*
+A full explantation how this model was constructed can found in [explanation.ipynb](explanation.ipynb).
 
-Background:
-------------
+To train and run the final a series of commandline tools was constructed:
 
-The model was based on instructions found in [Colorizing black & white images with U-Net and conditional GAN][0] by *Moein Shariatnia* Published in *Towards Data Science*.
-This example for ESRI where they generate fake a orthophoto from elevation, was also an inpiration for this model: [Generating rgb imagery from surface elevation using Pix2Pix][6]  
-Both articles are based the original paper by Phillip Isola Et al.: [Image-to-Image Translation with Conditional Adversarial Networks][7]
- 
-But I made several changes to fit it to training en infering on older geospatial orthophoto's, like a specific augmentation function and reading data with [GDAL][1] a library that preserves geospacial metadata when reading data and offers several utilities to deal with geodata, unlike Pillow, torchvision or OpenCV.  
+- [pretrain_unet.py](pretrain_unet.py) -> initialise the U-net generator.
+- [trainWeigthed.py](trainWeigthed.py) -> train the full GAN.
+- [inference.py](inference.py) -> test the model on real greyscale images.
 
-Source data 
------------
-
-I used the imagery produced by [Earth Observation Data Science (EODaS)][2] departement of the Flemish goverment as training data, these can be used and downloaded freely from [download.vlaanderen.be][3].
-
-For testing with real older black&white orthophotos I used data obtained from Belgian Geverment, Departement of Defence, National Geographic Institute (NGI) 
-These files can be purchased from their [website][4].
-
-How I preprocessed them can be found in the first chapter of [exploration.ipynb](exploration.ipynb)
+To showcase the results a interactive webpage was constructed: <https://warrieka.github.io/histo_ortho_viewer>
 
 Pretraining 
 -----------
@@ -31,13 +27,29 @@ In order to initialise the weigths of the generator, it can be pretrained by run
 
 I used the script [pretrain_unet.py](pretrain_unet.py). 
 
-Train 
+Run `python .\pretrain_unet.py` with the following options: 
+
+    -h, --help              Show this help message and exit
+    --imsize IMSIZE         The size the input image will be resize to.
+    --epochs EPOCHS         The number of epochs to train for.
+    --train_size TRAIN_SIZE
+                            The number of images to load from the training data
+    --lr LR                 Learing rate of the generator.
+    --dataset DATASET       Input traindata in Apache feather/arrow format.
+    --dataset_path_field DATASET_PATH_FIELD
+                            Fieldname to the path to the image.
+    --dataset_weight_field DATASET_WEIGHT_FIELD
+                            Fieldname to the weight of the image
+    --output_pretrained_weights OUTPUT_PRETRAINED_WEIGHTS
+                            File that contains the pretrained weights.
+    --architecture ARCHITECTURE
+                            The architecture of the UNET, for example "resnet18"
+
+
+Training
 ------
 
-The trainingscript select images from a apache Arrow-file in a weigthed fashion. <br>
-To reduce memory use I use Half-precision floating-point tensors and I also use [Huggingface accelerate][5] to speed up training. This also allows us to train on multiple GPU's. 
-
-To train for production you can use `accelerate launch .\trainWeigthed.py` to run the script with these options:
+To train for production you can use `python .\trainWeigthed.py` to run the script with these options:
 
     -h, --help               show this help message and exit.
     --imsize IMSIZE          The size the input image will be resize to.
@@ -61,20 +73,23 @@ To train for production you can use `accelerate launch .\trainWeigthed.py` to ru
 
 You can also change the values in CAPITAL-case in top of the script to your settings to change te default values. 
 
-I trained the final model for 20 epoch's on 50000 images of 512x512 pixels with a ground resoltion between 0.3 and 1 meter. 
+I trained the final model for 50 epoch's on 50000 images of 512x512 pixels with a ground resoltion between 0.3 and 1 meter. 
 
 You can see the result for each epoch on this gif: 
 
 ![](pic/training.gif)
 
+
 Inference and testing
 ---------------------
 
-The script to test inference is called `infer_test.py`. 
+The script to test on real data is called `inference.py`. 
 It allows tou to convert a GDAL-readable black&white source to colorized data. 
 You can have multiple inputs by using glob expression (*.tif). 
 Outputs are written to a [gdal-driver][8] that supports `create`, like Geotiff.
-It preserves geo-spatial metadata, like crs and geotransform.  
+It preserves geospatial metadata, like crs and geotransform.  
+
+run `python .\inference.py` 
 
 Options:
 
@@ -84,19 +99,10 @@ Options:
     --out_driver OUT_DRIVER
                         The output gdal driver to use to write output, 
                         only drivers that support "create" can be used.
-                        (see https://gdal.org/drivers/raster/)
+                        It defaults to Geotiff (see https://gdal.org/drivers/raster/)
     --batch_size BATCH_SIZE
-                        the size of batch the algoritem sends to the GPU in 1 batch, 
-                        If you get CUDA of of memory issues, try to decreaser the batch.
+                        the size of batch of tiles the algoritem sends to the GPU, 
+                        If you get *CUDA out of memory issues*, try to decrease the batch.
+                        It defaults to 12 
+    --nodata NODATA     The pixel value to use for NODATA transparancy, defaults to 255 
 
-
-
-[0]: https://towardsdatascience.com/colorizing-black-white-images-with-u-net-and-conditional-gan-a-tutorial-81b2df111cd8
-[1]: https://gdal.org/api/python/osgeo.gdal.html
-[2]: https://www.vlaanderen.be/digitaal-vlaanderen/onze-oplossingen/earth-observation-data-science-eodas
-[3]: https://download.vlaanderen.be/catalogus?thema=beelden-basiskaarten-grondgebruik&sort=4&q=orthofoto
-[4]: https://www.ngi.be/website/aanbod/digitale-geodata/orthofotos/
-[5]: https://huggingface.co/docs/accelerate/
-[6]: https://developers.arcgis.com/python/samples/generating-rgb-imagery-from-digital-surface-model-using-pix2pix/
-[7]: https://arxiv.org/abs/1611.07004
-[8]: https://gdal.org/drivers/raster

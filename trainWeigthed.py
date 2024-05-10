@@ -7,32 +7,33 @@ from model.unet import ResUnet
 from model.gdal_Dataset import arrowDataset
 from model.mainModel import MainModel
 # multi-GPU support  
-from accelerate import Accelerator
+# from accelerate import Accelerator
 
 # HYPERPARAMETERS
 IMAGE_SIZE = 512
-ARCHITECTURE = 'resnet50'
-EPOCHS = 30
+ARCHITECTURE = 'resnet34'
+EPOCHS = 50
 
-START_EPOCH = 28
-TRAIN_DS_SIZE = 5000
+START_EPOCH = 0
+TRAIN_DS_SIZE = 6000
 
 LR_GENERATOR =    1e-5
+
 LR_DISCRIMINATOR =1e-5
-FEATHER_DS =      Path('.\\data\\tiles_merged.arrow')
+FEATHER_DS =      Path(r"F:\2015_tiles\tiles_2015_weighted.arrow")
 DS_PATH_FIELD =   'path'
 DS_WEIGHT_FIELD = 'WEIGHT'
-PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet50_512.pth")
-OUT_STATE_DICT =  Path(f'.\\runs\\models\\run31\\color_run31_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
-RESUME = Path(f'.\\runs\\models\\run31\\color_run31_resnet50_512_epoch28.pth')
+PRETRAINED_DICT = Path(f".\\runs\\pretrain\\resnet34_512_run10.pth")
+OUT_STATE_DICT =  Path(f'.\\runs\\models\\run32\\color_run32_{ARCHITECTURE}_{IMAGE_SIZE}.pth')
+RESUME = Path(f'.\\runs\\models\\run32\\color_run32_{ARCHITECTURE}_{IMAGE_SIZE}_epoch{START_EPOCH}.pth') if START_EPOCH > 0 else None
 
 def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
     proj_dir = opts["output_weights"].parent.resolve()
     proj_dir.mkdir(parents=True, exist_ok=True)
     pretrained = opts["pretrained_weights"].resolve() 
 
-    accelerator = Accelerator(mixed_precision='bf16', project_dir=proj_dir)
-    train_dl, test_dl = accelerator.prepare(train_dl, test_dl)
+    accelerator = None #Accelerator(mixed_precision='bf16', project_dir=proj_dir)
+    #train_dl, test_dl = accelerator.prepare(train_dl, test_dl)
     
     assert pretrained is not None and pretrained.exists()
     net_G = ResUnet(n_input=1, n_output=2, timm_model_name=opts['architecture'] )
@@ -64,16 +65,15 @@ def train_model(train_dl:DataLoader, test_dl:DataLoader, opts:dict):
         print(f"\nEpoch {e+1}/{opts['epochs']} [{datetime.datetime.now()}]")
         # function to print out the losses
         log_results(loss_meter_dict, logFile= logfile )
+        
+        # save intemediatie results 
+        # accelerator.save_state(OUT_STATE_DICT.parent)
+        torch.save(model.state_dict(), proj_dir / f"{opts['output_weights'].stem}_epoch{e+1}.pth" )
+        if (e+1) % 10 == 0:
+            torch.save(model.net_G.state_dict(), proj_dir / f"{opts['output_weights'].stem}_net_G{e+1}.pth" ) 
+
         # function displaying the model's outputs
         visualize(model, next(test_data), epoch=e, save_dir=proj_dir )
-        # save intemediatie results 
-        accelerator.wait_for_everyone()
-        # accelerator.save_state(OUT_STATE_DICT.parent)
-
-        # if (e+1) % 10 == 0:
-        torch.save(model.state_dict(), proj_dir / f"{opts['output_weights'].stem}_epoch{e+1}.pth" )
-
-        torch.save(model.net_G.state_dict(), proj_dir.parent / f"{opts['output_weights'].stem}_net_G{e+1}.pth" ) 
 
     print(f"Training ended at {datetime.datetime.now()}")
 
@@ -88,8 +88,8 @@ def main(opts:dict):
                             pathField=opts['dataset_path_field'], weightField=opts['dataset_weight_field'],
                             count=test_ds_size)
 
-    train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=4)
-    test_dl = DataLoader( test_ds, num_workers=2, batch_size=4)
+    train_dl= DataLoader( train_ds, num_workers=6, pin_memory=True, batch_size=6)
+    test_dl = DataLoader( test_ds, num_workers=2, batch_size=6)
 
     train_model(train_dl, test_dl, opts)
 

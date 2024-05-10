@@ -38,16 +38,17 @@ class GDALtile():
 
 class GDALfile_colorizer():
     def __init__(self, in_GDALfile:os.PathLike, weigths:os.PathLike, tileSize:int=512, 
-                       batch_size:int=16, unet_arch:str="resnet34", alt_nodata:int=None):
+                       batch_size:int=16, unet_arch:str="resnet34", alt_nodata:int=None, accelerate:bool=True):
         print('Reading: ' ,in_GDALfile)
+        self.accelerator = accelerator if accelerate else None
+
         self.inDataset = gdal.Open( str(in_GDALfile), gdal.GA_ReadOnly)
         self.transform = np.array( self.inDataset.GetGeoTransform() )
-        self.device = accelerator.device if accelerator else torch.device(
-                                                    "cuda" if torch.cuda.is_available() else "cpu")
+
         self.model = ResUnet(timm_model_name=unet_arch)
-        if accelerator is not None:
-            self.device = accelerator.device
-            self.model = accelerator.prepare(self.model)
+        if self.accelerator is not None:
+            self.device = self.accelerator.device
+            self.model = self.accelerator.prepare(self.model)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model.to(self.device)
@@ -61,7 +62,7 @@ class GDALfile_colorizer():
 
     def _inferTiles(self, tiles:Iterable[GDALtile]):
         n_tiles  = np.array([ np.expand_dims( tile.getArray() /128 -1 , axis=0 ) for tile in tiles ]) 
-        T_tiles = torch.tensor(n_tiles, dtype=torch.float32 if accelerator is None else torch.bfloat16)
+        T_tiles = torch.tensor(n_tiles, dtype=torch.float32 if self.accelerator is None else torch.bfloat16)
         with torch.inference_mode():
             preds = self.model( T_tiles.to(self.device) )
         C_tiles = lab_to_rgb(T_tiles, preds.cpu())
