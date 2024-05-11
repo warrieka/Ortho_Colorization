@@ -2,6 +2,8 @@ Historical Panchromatic Orthophoto Colorisation with a Generative Adversarial Ne
 =================================================================
 By Kay Warrie
 
+![](pic/training.gif)
+
 This is deeplearing model to colorize historical greyscale or panchromatic orthophotos and orthophoto mosaics. 
 Greyscale images that made using all the wavelengths of the visible spectrum are called **panchromatic**, most historical images are panchrommatic. 
 An **Orthophoto** is an aerial photograph geometrically corrected ("orthorectified") such that the scale is uniform. It is the basis for most mapping solutions.
@@ -76,9 +78,6 @@ You can also change the values in CAPITAL-case in top of the script to your sett
 I trained the final model for 50 epoch's on 50000 images of 512x512 pixels with a ground resoltion between 0.3 and 1 meter. 
 
 You can see the result for each epoch on this gif: 
-
-![](pic/training.gif)
-
 
 Inference and testing
 ---------------------
